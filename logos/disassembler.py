@@ -5,7 +5,9 @@ def disassemble(filename):
     with open(filename, "rb") as f:
         header = f.read(5)
         version = f.read(1)
+        seal = f.read(32)
         print(f"Header: {header.decode()}, Version: {version[0]}")
+        print(f"Seal of Purity: {seal.hex()}")
         
         cp_count = struct.unpack("<I", f.read(4))[0]
         print(f"Constant Pool ({cp_count} items):")
@@ -20,6 +22,10 @@ def disassemble(filename):
                 length = struct.unpack("<I", f.read(4))[0]
                 val = f.read(length).decode('utf-8')
                 print(f"  {i}: STR '{val}'")
+                constants.append(val)
+            elif tag == 0x03:
+                val = struct.unpack("<d", f.read(8))[0]
+                print(f"  {i}: FLOAT {val}")
                 constants.append(val)
         
         code_len = struct.unpack("<I", f.read(4))[0]
@@ -44,6 +50,11 @@ def disassemble(filename):
                 pc += 4
                 print(f"  {pc-5:04x}: PETITION {idx} ({constants[idx]})")
             elif op == 0x40: print(f"  {pc-1:04x}: BEHOLD")
+            elif op == 0x50:
+                tag = code[pc]
+                pc += 1
+                t_name = {1: "HolyInt", 2: "Text", 3: "HolyFloat"}.get(tag, "Unknown")
+                print(f"  {pc-2:04x}: WITNESS {t_name}")
             elif op == 0x60: print(f"  {pc-1:04x}: FAST")
             elif op == 0x70: print(f"  {pc-1:04x}: ADD")
             elif op == 0x71: print(f"  {pc-1:04x}: SUB")

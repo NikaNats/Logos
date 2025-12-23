@@ -1,4 +1,4 @@
-﻿import sys, os, struct
+﻿import sys, os, struct, hashlib
 import z3
 from lark import Lark, Transformer, Token, Tree
 from lark.visitors import Interpreter
@@ -310,7 +310,6 @@ class LogosToPython(Transformer):
 
 class LogosToBytecode(Transformer):
     def __init__(self):
-        self.bytecode = bytearray()
         self.constants = []
 
     def _add_const(self, val):
@@ -320,8 +319,15 @@ class LogosToBytecode(Transformer):
         return len(self.constants) - 1
 
     def start(self, items):
-        self.bytecode.append(0x01) # HALT_AMEN
+        code = items[0]
+        code.append(0x01) # HALT_AMEN
+        
+        # Header: 'LOGOS' + Version 1 + Seal of Purity (32 bytes)
         header = b"LOGOS\x01"
+        
+        # Calculate Seal of Purity (Hash of the bytecode for now)
+        seal = hashlib.sha256(code).digest()
+        
         cp = bytearray()
         cp.extend(struct.pack("<I", len(self.constants)))
         for c in self.constants:
@@ -333,24 +339,45 @@ class LogosToBytecode(Transformer):
                 encoded = c.encode('utf-8')
                 cp.extend(struct.pack("<I", len(encoded)))
                 cp.extend(encoded)
+            elif isinstance(c, float):
+                cp.append(0x03)
+                cp.extend(struct.pack("<d", c))
         
-        code = bytearray()
-        code.extend(struct.pack("<I", len(self.bytecode)))
-        code.extend(self.bytecode)
-        return header + cp + code
+        full_binary = bytearray()
+        full_binary.extend(header)
+        full_binary.extend(seal)
+        full_binary.extend(cp)
+        full_binary.extend(struct.pack("<I", len(code)))
+        full_binary.extend(code)
+        return full_binary
 
-    def statements(self, items): return ""
+    def statements(self, items):
+        res = bytearray()
+        for item in items:
+            if isinstance(item, bytearray):
+                res.extend(item)
+        return res
+
+    def service_def(self, items): return items[3]
+    def ministry_def(self, items): return items[3]
+    def intercessor_def(self, items): return items[3]
 
     def behold_stmt(self, items):
-        self.bytecode.append(0x40) 
-        return ""
+        res = bytearray()
+        res.extend(items[0])
+        res.append(0x40) 
+        return res
 
     def essence_decl(self, items):
         name, typ, expr = str(items[0]), str(items[1]), items[2]
+        if not isinstance(expr, (bytearray, bytes)):
+            raise TypeError(f"Expected bytearray for expr, got {type(expr)}: {expr}")
         const_idx = self._add_const(name)
-        self.bytecode.append(0x20) 
-        self.bytecode.extend(struct.pack("<I", const_idx))
-        return ""
+        res = bytearray()
+        res.extend(expr)
+        res.append(0x20) 
+        res.extend(struct.pack("<I", const_idx))
+        return res
 
     def gift_decl(self, items):
         return self.essence_decl(items)
@@ -358,62 +385,196 @@ class LogosToBytecode(Transformer):
     def assign_stmt(self, items):
         name, expr = str(items[0]), items[1]
         const_idx = self._add_const(name)
-        self.bytecode.append(0x20) 
-        self.bytecode.extend(struct.pack("<I", const_idx))
-        return ""
+        res = bytearray()
+        res.extend(expr)
+        res.append(0x20) 
+        res.extend(struct.pack("<I", const_idx))
+        return res
+
+    def try_repent_stmt(self, items):
+        res = bytearray()
+        # items[0] is the try block statements (already a bytearray from statements rule)
+        res.extend(items[0])
+        return res
+
+    def cycle_stmt(self, items):
+        # cycle (expr) { statements } amen
+        # items: [expr, body] or [expr, limit, body]
+        expr = items[0]
+        body = items[-1]
+        
+        res = bytearray()
+        start_label = 0 # Relative to this block
+        
+        # 1. Evaluate expr
+        res.extend(expr)
+        
+        # 2. JZ to end
+        # We don't know the body length yet, so we'll backpatch or calculate
+        # JZ <offset> is 5 bytes (1 opcode + 4 offset)
+        # Offset is from the end of the JZ instruction
+        jz_placeholder_pos = len(res)
+        res.append(0x81)
+        res.extend(b"\x00\x00\x00\x00")
+        
+        # 3. Body
+        res.extend(body)
+        
+        # 4. JMP to start
+        # JMP <offset> is 5 bytes
+        # Offset = start_label - (current_pos + 5)
+        current_pos = len(res)
+        jmp_offset = 0 - (current_pos + 5)
+        res.append(0x80)
+        res.extend(struct.pack("<i", jmp_offset))
+        
+        # 5. Backpatch JZ
+        # Offset = current_pos_after_jmp - (jz_placeholder_pos + 5)
+        end_pos = len(res)
+        jz_offset = end_pos - (jz_placeholder_pos + 5)
+        res[jz_placeholder_pos+1:jz_placeholder_pos+5] = struct.pack("<i", jz_offset)
+        
+        return res
 
     def atom(self, items):
+        if len(items) == 3 and str(items[0]) == "(":
+            return items[1]
+        
         val = items[0]
+        res = bytearray()
         if isinstance(val, Token):
             if val.type == 'NUMBER':
-                const_idx = self._add_const(int(val))
-                self.bytecode.append(0x10)
-                self.bytecode.extend(struct.pack("<I", const_idx))
+                val_str = str(val)
+                if "." in val_str:
+                    const_idx = self._add_const(float(val_str))
+                else:
+                    const_idx = self._add_const(int(val_str))
+                res.append(0x10)
+                res.extend(struct.pack("<I", const_idx))
             elif val.type == 'STRING':
                 const_idx = self._add_const(val[1:-1])
-                self.bytecode.append(0x10)
-                self.bytecode.extend(struct.pack("<I", const_idx))
+                res.append(0x10)
+                res.extend(struct.pack("<I", const_idx))
             elif val.type == 'NAME':
                 const_idx = self._add_const(str(val))
-                self.bytecode.append(0x11)
-                self.bytecode.extend(struct.pack("<I", const_idx))
+                res.append(0x11)
+                res.extend(struct.pack("<I", const_idx))
         elif isinstance(val, str):
-            # This might happen if terminals are already converted to strings
-            # But we need to know if it was a NAME or a NUMBER
-            # For now, let's assume it's a NAME if it's not a digit
             if val.isdigit():
                 const_idx = self._add_const(int(val))
-                self.bytecode.append(0x10)
-                self.bytecode.extend(struct.pack("<I", const_idx))
+                res.append(0x10)
+                res.extend(struct.pack("<I", const_idx))
             else:
                 const_idx = self._add_const(val)
-                self.bytecode.append(0x11)
-                self.bytecode.extend(struct.pack("<I", const_idx))
-        return ""
+                res.append(0x11)
+                res.extend(struct.pack("<I", const_idx))
+        elif isinstance(val, bytearray):
+            return val
+        return res
+
+    def witness_expr(self, items):
+        # items: [expr, type]
+        expr = items[0]
+        typ = str(items[1])
+        res = bytearray()
+        res.extend(expr)
+        res.append(0x50)
+        if typ == "HolyInt": res.append(0x01)
+        elif typ == "Text": res.append(0x02)
+        elif typ == "HolyFloat": res.append(0x03)
+        else: res.append(0x00) # Unknown
+        return res
+
+    def call_expr(self, items):
+        target = items[0]
+        args_list = items[1] if len(items) > 1 else []
+        
+        # If target is a member_access like t.read
+        if isinstance(target, tuple) and target[0] == "MEMBER":
+            obj, method = target[1], target[2]
+            if method == "read":
+                # args_list[0] is the code for the key (e.g., PUSH_ESS <idx>)
+                key_code = args_list[0]
+                if len(key_code) == 5 and key_code[0] == 0x10:
+                    res = bytearray([0x11])
+                    res.extend(key_code[1:])
+                    return res
+            elif method == "petition":
+                # args_list is [key_code, val_code]
+                # We want: val_code, then PETITION <key_idx>
+                key_code = args_list[0]
+                val_code = args_list[1]
+                if len(key_code) == 5 and key_code[0] == 0x10:
+                    res = bytearray()
+                    res.extend(val_code)
+                    res.append(0x20)
+                    res.extend(key_code[1:])
+                    return res
+        
+        name = str(target)
+        if name == "create_synod":
+            const_idx = self._add_const(0)
+            res = bytearray([0x10])
+            res.extend(struct.pack("<I", const_idx))
+            return res
+        
+        res = bytearray()
+        for a in args_list:
+            res.extend(a)
+        return res
+
+    def args(self, items):
+        return items
+
+    def arg(self, items):
+        return items[-1]
+
+    def member_access(self, items):
+        return ("MEMBER", items[0], str(items[1]))
+
+    def await_stmt(self, items):
+        if isinstance(items[0], bytearray):
+            return items[0]
+        return bytearray()
+
+    def call_stmt(self, items):
+        if isinstance(items[0], bytearray):
+            return items[0]
+        return bytearray()
+
+    def gather_stmt(self, items):
+        # No-op for now
+        return bytearray()
+
+    def kairos_stmt(self, items):
+        # No-op for now
+        return bytearray()
+
+    def expr(self, items):
+        return items[0]
 
     def bin_op(self, items):
-        op = str(items[1])
-        if op == "+": self.bytecode.append(0x70)
-        elif op == "-": self.bytecode.append(0x71)
-        elif op == "*": self.bytecode.append(0x72)
-        elif op == "/": self.bytecode.append(0x73)
-        elif op == "==": self.bytecode.append(0x74)
-        elif op == "!=": self.bytecode.append(0x75)
-        elif op == "<": self.bytecode.append(0x76)
-        elif op == ">": self.bytecode.append(0x77)
-        elif op == "<=": # Need to implement LE/GE or just use combinations
-            self.bytecode.append(0x77) # GT
-            self.bytecode.append(0x10) # PUSH_ESS (0)
-            # ... actually let's just add 0x78 and 0x79
-            self.bytecode.pop() # remove 0x77
-            self.bytecode.append(0x78)
-        elif op == ">=":
-            self.bytecode.append(0x79)
-        return ""
+        left, op, right = items[0], str(items[1]), items[2]
+        res = bytearray()
+        res.extend(left)
+        res.extend(right)
+        if op == "+": res.append(0x70)
+        elif op == "-": res.append(0x71)
+        elif op == "*": res.append(0x72)
+        elif op == "/": res.append(0x73)
+        elif op == "==": res.append(0x74)
+        elif op == "!=": res.append(0x75)
+        elif op == "<": res.append(0x76)
+        elif op == ">": res.append(0x77)
+        elif op == "<=": res.append(0x78)
+        elif op == ">=": res.append(0x79)
+        return res
 
     def fast_stmt(self, items):
-        self.bytecode.append(0x60)
-        return ""
+        res = bytearray()
+        res.extend(items[0])
+        res.append(0x60)
+        return res
 
     def NAME(self, t): return t
     def NUMBER(self, t): return t
