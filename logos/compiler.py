@@ -1,4 +1,4 @@
-﻿import sys, os
+﻿import sys, os, struct
 import z3
 from lark import Lark, Transformer, Token, Tree
 from lark.visitors import Interpreter
@@ -308,27 +308,143 @@ class LogosToPython(Transformer):
     def NUMBER(self, t): return str(t)
     def STRING(self, t): return str(t)
 
+class LogosToBytecode(Transformer):
+    def __init__(self):
+        self.bytecode = bytearray()
+        self.constants = []
+
+    def _add_const(self, val):
+        if val in self.constants:
+            return self.constants.index(val)
+        self.constants.append(val)
+        return len(self.constants) - 1
+
+    def start(self, items):
+        self.bytecode.append(0x01) # HALT_AMEN
+        header = b"LOGOS\x01"
+        cp = bytearray()
+        cp.extend(struct.pack("<I", len(self.constants)))
+        for c in self.constants:
+            if isinstance(c, int):
+                cp.append(0x01)
+                cp.extend(struct.pack("<q", c))
+            elif isinstance(c, str):
+                cp.append(0x02)
+                encoded = c.encode('utf-8')
+                cp.extend(struct.pack("<I", len(encoded)))
+                cp.extend(encoded)
+        
+        code = bytearray()
+        code.extend(struct.pack("<I", len(self.bytecode)))
+        code.extend(self.bytecode)
+        return header + cp + code
+
+    def statements(self, items): return ""
+
+    def behold_stmt(self, items):
+        self.bytecode.append(0x40) 
+        return ""
+
+    def essence_decl(self, items):
+        name, typ, expr = str(items[0]), str(items[1]), items[2]
+        const_idx = self._add_const(name)
+        self.bytecode.append(0x20) 
+        self.bytecode.extend(struct.pack("<I", const_idx))
+        return ""
+
+    def gift_decl(self, items):
+        return self.essence_decl(items)
+
+    def assign_stmt(self, items):
+        name, expr = str(items[0]), items[1]
+        const_idx = self._add_const(name)
+        self.bytecode.append(0x20) 
+        self.bytecode.extend(struct.pack("<I", const_idx))
+        return ""
+
+    def atom(self, items):
+        val = items[0]
+        if isinstance(val, Token):
+            if val.type == 'NUMBER':
+                const_idx = self._add_const(int(val))
+                self.bytecode.append(0x10)
+                self.bytecode.extend(struct.pack("<I", const_idx))
+            elif val.type == 'STRING':
+                const_idx = self._add_const(val[1:-1])
+                self.bytecode.append(0x10)
+                self.bytecode.extend(struct.pack("<I", const_idx))
+            elif val.type == 'NAME':
+                const_idx = self._add_const(str(val))
+                self.bytecode.append(0x11)
+                self.bytecode.extend(struct.pack("<I", const_idx))
+        elif isinstance(val, str):
+            # This might happen if terminals are already converted to strings
+            # But we need to know if it was a NAME or a NUMBER
+            # For now, let's assume it's a NAME if it's not a digit
+            if val.isdigit():
+                const_idx = self._add_const(int(val))
+                self.bytecode.append(0x10)
+                self.bytecode.extend(struct.pack("<I", const_idx))
+            else:
+                const_idx = self._add_const(val)
+                self.bytecode.append(0x11)
+                self.bytecode.extend(struct.pack("<I", const_idx))
+        return ""
+
+    def bin_op(self, items):
+        op = str(items[1])
+        if op == "+": self.bytecode.append(0x70)
+        elif op == "-": self.bytecode.append(0x71)
+        elif op == "*": self.bytecode.append(0x72)
+        elif op == "/": self.bytecode.append(0x73)
+        elif op == "==": self.bytecode.append(0x74)
+        elif op == "!=": self.bytecode.append(0x75)
+        elif op == "<": self.bytecode.append(0x76)
+        elif op == ">": self.bytecode.append(0x77)
+        elif op == "<=": # Need to implement LE/GE or just use combinations
+            self.bytecode.append(0x77) # GT
+            self.bytecode.append(0x10) # PUSH_ESS (0)
+            # ... actually let's just add 0x78 and 0x79
+            self.bytecode.pop() # remove 0x77
+            self.bytecode.append(0x78)
+        elif op == ">=":
+            self.bytecode.append(0x79)
+        return ""
+
+    def fast_stmt(self, items):
+        self.bytecode.append(0x60)
+        return ""
+
+    def NAME(self, t): return t
+    def NUMBER(self, t): return t
+    def STRING(self, t): return t
+
 def indent_body(body):
     if not body: return indent("pass")
     return "\n".join([indent(str(stmt)) for stmt in body if stmt])
 
-def compile_and_run(filename):
+def compile_and_run(filename, target="python"):
     base_dir = os.path.dirname(__file__)
     lark_path = os.path.join(base_dir, "logos.lark")
     parser = Lark(open(lark_path).read(), parser='lalr', propagate_positions=True)
     tree = parser.parse(open(filename).read())
     
-    # 1. Synod Validation (Asceticism)
     SynodValidator().visit(tree)
-    
-    # 2. Diakrisis (Formal Verification)
     print("[+] Commencing Diakrisis (Formal Verification)...")
     DiakrisisEngine().visit(tree)
     print("[+] Diakrisis complete. Program is Sanctified.")
     
-    # 3. Transfiguration (Python Generation)
-    py_code = LogosToPython().transform(tree)
-    exec(py_code + "\nimport asyncio\nasyncio.run(main())", {"__name__": "__main__"})
+    if target == "python":
+        py_code = LogosToPython().transform(tree)
+        exec(py_code + "\nimport asyncio\nasyncio.run(main())", {"__name__": "__main__"})
+    elif target == "lbc":
+        transformer = LogosToBytecode()
+        lbc = transformer.transform(tree)
+        out_name = filename.replace(".lg", ".lbc")
+        with open(out_name, "wb") as f:
+            f.write(lbc)
+        print(f"[+] Sanctification complete: {out_name}")
 
 if __name__ == "__main__":
-    compile_and_run(sys.argv[1])
+    target = sys.argv[2] if len(sys.argv) > 2 else "python"
+    compile_and_run(sys.argv[1], target)

@@ -52,11 +52,17 @@ To officiate LOGOS programs, you must have the **Logos Liturgical Engine** insta
 git clone https://github.com/theology/logos.git
 cd logos
 
-# Install dependencies (Lark Parser)
-pip install lark
+# Install dependencies (Lark Parser, Z3 Solver)
+pip install lark z3-solver
 
-# Use the 'logos' command to officiate a script
-python compiler.py script.lg
+# Officiate a script to Python (Transfiguration)
+python compiler.py script.lg python
+
+# Sanctify a script to Logos Bytecode (LBC)
+python compiler.py script.lg lbc
+
+# Execute via the Sanctified Virtual Machine (SVM)
+./logos-svm/target/release/logos-svm script.lbc
 ```
 
 ---

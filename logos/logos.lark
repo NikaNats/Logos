@@ -32,15 +32,15 @@ await_stmt: "await" (call_expr | member_access)
 kairos_stmt: "wait" "until" "kairos" "(" expr ")" ["timeout" NUMBER] "{" statements "}" ["repent" "{" statements "}" "amen"] "amen"
 gather_stmt: "gather" "(" expr ("," expr)* ")" ";"
 
-?expr: atom | bin_op | witness_expr | call_expr | member_access
+expr: atom | bin_op | witness_expr | call_expr | member_access
 witness_expr: "witness" atom "as" TYPE
 call_expr: (NAME | member_access) "(" [args] ")"
 args: arg ("," arg)*
-?arg: expr | NAME "=" expr
+arg: expr | NAME "=" expr
 member_access: atom "." NAME
 bin_op: expr OPERATOR expr
 OPERATOR: "+" | "-" | "*" | "/" | ">" | "<" | "==" | "!=" | ">=" | "<="
-?atom: NUMBER | NAME | STRING | "(" expr ")"
+atom: NUMBER | NAME | STRING | "(" expr ")"
 
 TYPE: "HolyInt" | "Text" | "Void" | NAME
 %import common.CNAME -> NAME
