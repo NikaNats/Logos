@@ -1,0 +1,30 @@
+ministry main() -> Void {
+    essence treasury : Synod = create_synod(gold=0);
+
+    // Intercessor A: Slowly adds gold (Chronos)
+    intercessor donor(t: Synod) -> Void {
+        gift count : HolyInt = 0;
+        cycle (count < 5) {
+            behold "Adding gold to treasury...";
+            await t.petition("gold", (t.read("gold") + 25));
+            count = (count + 1);
+            fast 0.5; // Chronos: Mechanical delay
+        } amen
+    } amen
+
+    // Intercessor B: Waits for fulfillment (Kairos)
+    intercessor distributor(t: Synod) -> Void {
+        behold "Distributor is waiting for the Kairos of 100 gold...";
+        
+        wait until kairos (t.read("gold") >= 100) timeout 10 {
+            behold "The time is fulfilled. Treasury has reached 100.";
+            await t.petition("gold", (t.read("gold") - 100));
+            behold "Tithe distributed.";
+        } repent {
+            behold "The Kairos was not reached. The community was not ready.";
+        } amen amen
+    } amen
+
+    // Start both concurrently
+    gather(donor(treasury), distributor(treasury));
+} amen

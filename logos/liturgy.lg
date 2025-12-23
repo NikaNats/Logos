@@ -1,0 +1,28 @@
+type SacredBalance = essence {
+    not < 0;
+} amen
+
+ministry main() -> Void {
+    essence treasury : Synod = create_synod(gold=0);
+
+    intercessor donor(t: Synod) -> Void {
+        gift count : HolyInt = 0;
+        cycle (count < 4) {
+            behold "Adding gold...";
+            await t.petition("gold", (t.read("gold") + 25));
+            count = (count + 1);
+            fast 0.5;
+        } amen
+    } amen
+
+    intercessor distributor(t: Synod) -> Void {
+        wait until kairos (t.read("gold") >= 100) timeout 5 {
+            behold "The time is fulfilled!";
+            await t.petition("gold", 0);
+        } repent {
+            behold "Community was not ready.";
+        } amen amen
+    } amen
+
+    gather(donor(treasury), distributor(treasury));
+} amen

@@ -1,0 +1,34 @@
+type SacredBalance = essence {
+    not < 0;
+} amen
+
+ministry main() -> Void {
+    // We create a Synodal State (The Council table)
+    essence treasury : Synod = create_synod(gold=100);
+
+    // Launch two Intercessors
+    intercessor almsgiving(t: Synod) -> Void {
+        gift current : HolyInt = t.read("gold");
+        council (t) {
+            behold "Decreasing gold for charity...";
+            await t.petition("gold", (current - 10));
+        } amen
+        fast 0.1; // Fasting to allow others to work
+    } amen
+
+    intercessor donation(t: Synod) -> Void {
+        gift balance : HolyInt = t.read("gold");
+        council (t) {
+            behold "Increasing gold through donation...";
+            await t.petition("gold", (balance + 50));
+        } amen
+        fast 0.1;
+    } amen
+
+    // Synchronized execution
+    await almsgiving(treasury);
+    await donation(treasury);
+    
+    behold "Final Treasury State:";
+    behold treasury.read("gold");
+} amen

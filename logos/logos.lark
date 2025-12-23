@@ -1,0 +1,52 @@
+start: statements
+statements: statement+
+
+?statement: type_def | service_def | ministry_def | intercessor_def 
+          | essence_decl | gift_decl | assign_stmt | cycle_stmt 
+          | behold_stmt | offer_stmt | try_repent_stmt | call_stmt 
+          | council_stmt | fast_stmt | await_stmt | kairos_stmt | gather_stmt
+
+type_def: "type" NAME "=" "essence" "{" constraint+ "}" "amen"
+constraint: "not" OPERATOR expr ";"
+
+service_def: "service" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
+ministry_def: "ministry" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
+intercessor_def: "intercessor" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
+param: NAME ":" TYPE
+params: param ("," param)*
+
+essence_decl: "essence" NAME ":" TYPE "=" expr ";"
+gift_decl: "gift" NAME ":" TYPE "=" expr ";"
+assign_stmt: NAME "=" expr ";"
+
+cycle_stmt: "cycle" "(" expr ")" ["limit" NUMBER] "{" statements "}" "amen"
+behold_stmt: "behold" expr ";"
+offer_stmt: "offer" expr ";"
+
+try_repent_stmt: "try" "{" statements "}" "repent" "(" NAME ")" "{" statements "}" "amen"
+
+call_stmt: (call_expr | await_stmt) ";"
+council_stmt: "council" "(" NAME ("," NAME)* ")" "{" statements "}" "amen"
+fast_stmt: "fast" expr ";"
+await_stmt: "await" (call_expr | member_access)
+kairos_stmt: "wait" "until" "kairos" "(" expr ")" ["timeout" NUMBER] "{" statements "}" ["repent" "{" statements "}" "amen"] "amen"
+gather_stmt: "gather" "(" expr ("," expr)* ")" ";"
+
+?expr: atom | bin_op | witness_expr | call_expr | member_access
+witness_expr: "witness" atom "as" TYPE
+call_expr: (NAME | member_access) "(" [args] ")"
+args: arg ("," arg)*
+?arg: expr | NAME "=" expr
+member_access: atom "." NAME
+bin_op: expr OPERATOR expr
+OPERATOR: "+" | "-" | "*" | "/" | ">" | "<" | "==" | "!=" | ">=" | "<="
+?atom: NUMBER | NAME | STRING | "(" expr ")"
+
+TYPE: "HolyInt" | "Text" | "Void" | NAME
+%import common.CNAME -> NAME
+%import common.NUMBER
+%import common.ESCAPED_STRING -> STRING
+%import common.CPP_COMMENT -> COMMENT
+%import common.WS
+%ignore WS
+%ignore COMMENT
