@@ -1,29 +1,29 @@
-// Define an Apophatic Nature
+# Define an Apophatic Nature
 type Probability = essence {
-    not < 0;
-    not > 1;
+    not p < 0;
+    not p > 1;
 } amen
 
-ministry main() -> Void {
-    // Essence: Unchangeable Truth
+service main() {
+    # Essence: Unchangeable Truth
     essence p : Probability = 0.7;
     behold "The probability is revealed:";
     behold p;
 
-    // Gift: A state that can change
+    # Gift: A state that can change
     gift count : HolyInt = 1;
-    // Fasting from infinite loops with a limit
+    # Fasting from infinite loops with a limit
     cycle (count <= 3) limit 10 {
         behold "Iteration:";
         behold count;
         count = (count + 1);
     } amen
 
-    // Repentance for failed transfiguration
+    # Repentance for failed transfiguration
     try {
         essence raw : Text = "invalid_number";
         essence secret : HolyInt = witness raw as HolyInt;
-    } repent (sin) {
+    } repent sin {
         behold "A hamartia occurred during witnessing, but we have repented.";
     } amen
 

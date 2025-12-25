@@ -1,52 +1,85 @@
+// LOGOS: The Orthodox Grammar Definition
+
 start: statements
-statements: statement+
 
-?statement: type_def | service_def | ministry_def | intercessor_def 
-          | essence_decl | gift_decl | assign_stmt | cycle_stmt 
-          | behold_stmt | offer_stmt | try_repent_stmt | call_stmt 
-          | council_stmt | fast_stmt | await_stmt | kairos_stmt | gather_stmt
+statements: statement*
 
+statement: service_def
+         | ministry_def
+         | intercessor_def
+         | type_def
+         | essence_decl
+         | gift_decl
+         | assign_stmt
+         | try_repent_stmt
+         | cycle_stmt
+         | kairos_stmt
+         | council_stmt
+         | behold_stmt
+         | fast_stmt
+         | offer_stmt
+         | expr_stmt
+
+// --- Hierarchies of Execution ---
+service_def: "service" NAME "(" params? ")" "{" statements "}" "amen"
+ministry_def: "ministry" NAME "(" params? ")" "{" statements "}" "amen"
+intercessor_def: "intercessor" NAME "(" params? ")" "{" statements "}" "amen"
+
+// --- Ontological Definitions ---
 type_def: "type" NAME "=" "essence" "{" constraint+ "}" "amen"
-constraint: "not" OPERATOR expr ";"
+constraint: "not" bin_op ";"
 
-service_def: "service" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
-ministry_def: "ministry" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
-intercessor_def: "intercessor" NAME "(" [params] ")" "->" TYPE "{" statements "}" "amen"
-param: NAME ":" TYPE
-params: param ("," param)*
-
-essence_decl: "essence" NAME ":" TYPE "=" expr ";"
-gift_decl: "gift" NAME ":" TYPE "=" expr ";"
+essence_decl: "essence" NAME ":" NAME "=" expr ";"
+gift_decl: "gift" NAME ":" NAME "=" expr ";"
 assign_stmt: NAME "=" expr ";"
 
-cycle_stmt: "cycle" "(" expr ")" ["limit" NUMBER] "{" statements "}" "amen"
+// --- Ascetic Control Flow ---
+try_repent_stmt: "try" "{" statements "}" "repent" NAME "{" statements "}" "amen"
+
+// Cycles require limits to prevent Eternity (infinite loops), which belongs only to God
+cycle_stmt: "cycle" expr ("limit" NUMBER)? "{" statements "}" "amen"
+
+// Kairos: Async execution waiting for the right moment
+kairos_stmt: "kairos" expr ("timeout" NUMBER)? "{" statements "}" ("repent" "{" statements "}")? "amen"
+
+council_stmt: "council" NAME "{" statements "}" "amen"
+fast_stmt: "fast" expr ";"
 behold_stmt: "behold" expr ";"
 offer_stmt: "offer" expr ";"
+expr_stmt: expr ";"
 
-try_repent_stmt: "try" "{" statements "}" "repent" "(" NAME ")" "{" statements "}" "amen"
+// --- Expressions ---
+?expr: atom
+     | bin_op
+     | call_expr
+     | witness_expr
+     | await_expr
+     | gather_expr
+     | member_access
 
-call_stmt: (call_expr | await_stmt) ";"
-council_stmt: "council" "(" NAME ("," NAME)* ")" "{" statements "}" "amen"
-fast_stmt: "fast" expr ";"
-await_stmt: "await" (call_expr | member_access)
-kairos_stmt: "wait" "until" "kairos" "(" expr ")" ["timeout" NUMBER] "{" statements "}" ["repent" "{" statements "}" "amen"] "amen"
-gather_stmt: "gather" "(" expr ("," expr)* ")" ";"
+bin_op: expr OPERATOR expr
+witness_expr: "witness" expr "as" NAME
+await_expr: "await" expr
+gather_expr: "gather" "(" args ")"
+call_expr: (NAME | member_access) "(" args? ")"
+member_access: NAME "." NAME
 
-expr: atom | bin_op | witness_expr | call_expr | member_access
-witness_expr: "witness" atom "as" TYPE
-call_expr: (NAME | member_access) "(" [args] ")"
+atom: NUMBER
+     | STRING
+     | NAME
+     | "(" expr ")"
+
+// --- Low Level Tokens ---
+params: param ("," param)*
+param: NAME
 args: arg ("," arg)*
 arg: expr | NAME "=" expr
-member_access: atom "." NAME
-bin_op: expr OPERATOR expr
-OPERATOR: "+" | "-" | "*" | "/" | ">" | "<" | "==" | "!=" | ">=" | "<="
-atom: NUMBER | NAME | STRING | "(" expr ")"
 
-TYPE: "HolyInt" | "Text" | "Void" | NAME
-%import common.CNAME -> NAME
-%import common.NUMBER
-%import common.ESCAPED_STRING -> STRING
-%import common.CPP_COMMENT -> COMMENT
+OPERATOR: "+" | "-" | "*" | "/" | "==" | "!=" | "<" | ">" | "<=" | ">="
+NAME: /[a-zA-Z_]\w*/
+NUMBER: /\d+(\.\d+)?/
+STRING: /"[^"]*"/
+
 %import common.WS
 %ignore WS
-%ignore COMMENT
+%ignore /#.*/  // Comments start with #

@@ -46,7 +46,83 @@ impl SVM {
         }
     }
 
+    fn verify(&self, code: &[u8]) {
+        let mut stack_types = Vec::new();
+        let mut cursor = Cursor::new(code);
+        let mut pc = 0;
+        while pc < code.len() {
+            cursor.set_position(pc as u64);
+            let opcode = cursor.read_u8().unwrap();
+            pc += 1;
+            match opcode {
+                0x01 => break, // HALT
+                0x10 => { // PUSH_ESS
+                    let idx = cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    let val = &self.constants[idx as usize];
+                    stack_types.push(match val.data {
+                        Data::Int(_) => "Int",
+                        Data::Float(_) => "Float",
+                        Data::String(_) => "String",
+                    });
+                }
+                0x11 => { // LOAD_ESS
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    stack_types.push("Any");
+                }
+                0x20 => { // PETITION
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                }
+                0x40 => { // BEHOLD
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0x50 => { // WITNESS
+                    cursor.read_u8().unwrap();
+                    pc += 1;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-2); }
+                    stack_types.push("Any");
+                }
+                0x60 => { // FAST
+                    if let Some(t) = stack_types.pop() {
+                        if t != "Int" && t != "Any" { panic!("Verification Error: FAST requires Int at PC {}", pc-1); }
+                    } else { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0x70 | 0x71 | 0x72 | 0x73 => { // Arithmetic
+                    let b = stack_types.pop();
+                    let a = stack_types.pop();
+                    if a.is_none() || b.is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    let (ta, tb) = (a.unwrap(), b.unwrap());
+                    if (ta != "Int" && ta != "Any") || (tb != "Int" && tb != "Any") {
+                        panic!("Verification Error: Arithmetic requires Int at PC {}", pc-1);
+                    }
+                    stack_types.push("Int");
+                }
+                0x74 | 0x75 | 0x76 | 0x77 | 0x78 | 0x79 => { // Comparison
+                    let b = stack_types.pop();
+                    let a = stack_types.pop();
+                    if a.is_none() || b.is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Int"); // Result is boolean (Int 0/1)
+                }
+                0x80 => { // JMP
+                    cursor.read_i32::<LittleEndian>().unwrap();
+                    pc += 4;
+                }
+                0x81 => { // JZ
+                    cursor.read_i32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                }
+                _ => {}
+            }
+        }
+        println!("[+] Ontological Verification successful.");
+    }
+
     fn execute(&mut self, code: Vec<u8>) {
+        self.verify(&code);
         let mut cursor = Cursor::new(code);
         while self.pc < cursor.get_ref().len() {
             cursor.set_position(self.pc as u64);
@@ -131,84 +207,94 @@ impl SVM {
                 0x70 => { // ADD
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va + vb), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va + vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x71 => { // SUB
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va - vb), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va - vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x72 => { // MUL
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va * vb), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va * vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x73 => { // DIV
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va / vb), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va / vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x74 => { // EQ
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     let res = match (&a.data, &b.data) {
                         (Data::Int(va), Data::Int(vb)) => va == vb,
                         (Data::String(va), Data::String(vb)) => va == vb,
                         _ => false,
                     };
-                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred: false });
+                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred });
                 }
                 0x75 => { // NE
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     let res = match (&a.data, &b.data) {
                         (Data::Int(va), Data::Int(vb)) => va != vb,
                         (Data::String(va), Data::String(vb)) => va != vb,
                         _ => true,
                     };
-                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred: false });
+                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred });
                 }
                 0x76 => { // LT
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va < vb { 1 } else { 0 }), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va < vb { 1 } else { 0 }), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x77 => { // GT
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va > vb { 1 } else { 0 }), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va > vb { 1 } else { 0 }), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x78 => { // LE
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va <= vb { 1 } else { 0 }), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va <= vb { 1 } else { 0 }), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
                 0x79 => { // GE
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
+                    let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va >= vb { 1 } else { 0 }), is_sacred: false }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va >= vb { 1 } else { 0 }), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }

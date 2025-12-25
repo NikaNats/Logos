@@ -41,14 +41,16 @@ class SynodValidator(Interpreter):
         self.service_stack.pop()
 
     def essence_decl(self, tree):
-        if not self.in_service: raise Exception("Pride Error: Global essence forbidden.")
         name = str(tree.children[0])
+        typ = str(tree.children[1])
+        if not self.in_service and typ != "Synod": 
+            raise Exception("Pride Error: Global essence forbidden.")
         self._register(name, tree.children[0].line, True)
         self.visit_children(tree)
 
     def behold_stmt(self, tree):
-        if not self.in_ministry:
-            raise Exception(f"Sanctity Error: 'behold' forbidden in pure service at line {tree.meta.line}.")
+        if not self.in_service:
+            raise Exception(f"Sanctity Error: 'behold' forbidden outside of service/ministry at line {tree.meta.line}.")
 
     def witness_expr(self, tree):
         if self.in_try_block == 0:
@@ -82,11 +84,30 @@ class DiakrisisEngine(Interpreter):
         constraints = []
         for c in tree.children:
             if isinstance(c, Tree) and c.data == 'constraint':
-                # constraint: "not" OPERATOR expr ";"
-                # Children: [OPERATOR, expr]
-                op = str(c.children[0])
-                expr = c.children[1]
-                constraints.append((op, expr))
+                # constraint: "not" bin_op ";"
+                # bin_op: expr OPERATOR expr
+                bin_op = c.children[0]
+                if isinstance(bin_op, Tree) and bin_op.data == 'bin_op':
+                    left = bin_op.children[0]
+                    op = str(bin_op.children[1])
+                    right = bin_op.children[2]
+                    
+                    # Determine which side is the variable and which is the limit
+                    def get_val(node):
+                        curr = node
+                        while isinstance(curr, Tree) and curr.data in ('expr', 'atom'):
+                            if not curr.children: break
+                            curr = curr.children[0]
+                        return curr
+
+                    left_val = get_val(left)
+                    right_val = get_val(right)
+
+                    if isinstance(left_val, Token) and left_val.type == 'NAME':
+                        constraints.append((op, right_val))
+                    elif isinstance(right_val, Token) and right_val.type == 'NAME':
+                        inv_op = {"<": ">", ">": "<", "==": "==", "!=": "!=", "<=": ">=", ">=": "<="}.get(op, op)
+                        constraints.append((inv_op, left_val))
         self.custom_types[name] = constraints
 
     def essence_decl(self, tree):
@@ -126,32 +147,27 @@ class DiakrisisEngine(Interpreter):
             constraints = self._get_constraints(typ)
             for op, c_expr in constraints:
                 limit = self._to_z3(c_expr)
-                self.solver.push()
-                self.solver.add(val == z3_expr)
                 
-                if op == "<": cond = val < limit
-                elif op == ">": cond = val > limit
-                elif op == "==": cond = val == limit
-                elif op == "!=": cond = val != limit
-                elif op == ">=": cond = val >= limit
-                elif op == "<=": cond = val <= limit
-                else: cond = None
+                # The nature is the opposite of the apophatic constraint
+                if op == "<": nature = val >= limit
+                elif op == ">": nature = val <= limit
+                elif op == "==": nature = val != limit
+                elif op == "!=": nature = val == limit
+                elif op == ">=": nature = val < limit
+                elif op == "<=": nature = val > limit
+                else: nature = None
                 
-                if cond is not None:
-                    self.solver.add(cond)
+                if nature is not None:
+                    self.solver.push()
+                    self.solver.add(val == z3_expr)
+                    self.solver.add(z3.Not(nature))
                     if self.solver.check() == z3.sat:
                         model = self.solver.model()
                         self.solver.pop()
                         raise Exception(f"Diakrisis Error: Essence '{name}' violates nature '{typ}' at line {line}. "
                                         f"Counter-example: {model}")
-                self.solver.pop()
-                
-                if op == "<": self.solver.add(val >= limit)
-                elif op == ">": self.solver.add(val <= limit)
-                elif op == "==": self.solver.add(val != limit)
-                elif op == "!=": self.solver.add(val == limit)
-                elif op == ">=": self.solver.add(val < limit)
-                elif op == "<=": self.solver.add(val > limit)
+                    self.solver.pop()
+                    self.solver.add(nature)
             
             # Add the assignment permanently to the solver's knowledge base
             self.solver.add(val == z3_expr)
@@ -230,8 +246,13 @@ class LogosToPython(Transformer):
         ]
         return "\n".join(philokalia) + "\n\n" + "\n".join(items[0])
 
+    def statements(self, items): return items
+    def statement(self, items): return items[0]
+
     def service_def(self, items):
-        name, params, body = items[0], items[1] or "", items[3]
+        name = items[0]
+        params = items[1] if len(items) == 3 else ""
+        body = items[-1]
         prefix = "async " # In Logos v1.0, all services are inherently ready for intercession
         return f"{prefix}def {name}({params}):\n{indent_body(body)}"
 
@@ -248,23 +269,36 @@ class LogosToPython(Transformer):
 
     def essence_decl(self, items):
         name, typ, expr = str(items[0]), str(items[1]), items[2]
-        checks = CANON_TYPES.get(typ, [])
-        assertions = "\n".join([f"assert {c.format(name=name)}, 'Nature Violation'" for c in checks])
-        return f"{name} = sanctify({expr})\n{assertions}"
+        expr_str = str(expr)
+        if "create_synod" in expr_str:
+            # Remove await if it was accidentally added by a sub-rule
+            expr_str = expr_str.replace("await ", "")
+            return f"global {name}\n{name} = {expr_str}"
+        return f"global {name}\n{name} = {expr_str}"
 
     def gift_decl(self, items):
         name, typ, expr = str(items[0]), str(items[1]), items[2]
-        return f"{name} = {expr}"
+        return f"global {name}\n{name} = {expr}"
 
     def assign_stmt(self, items):
         return f"{items[0]} = {items[1]}"
 
     def cycle_stmt(self, items):
-        cond, limit, body = items[0], items[1] if len(items)==3 else None, items[-1]
-        loop = f"while {cond}:\n{indent_body(body)}"
+        # cycle expr ("limit" NUMBER)? "{" statements "}" "amen"
+        expr = items[0]
+        limit = None
+        body = None
+        if len(items) == 3:
+            limit = items[1]
+            body = items[2]
+        else:
+            body = items[1]
+        loop = f"while {expr}:\n{indent_body(body)}"
         return f"__lim__={limit}\n{loop}" if limit else loop
 
+
     def kairos_stmt(self, items):
+        # kairos expr ("timeout" NUMBER)? "{" statements "}" ("repent" "{" statements "}")? "amen"
         expr = items[0]
         timeout = "None"
         body = None
@@ -282,7 +316,15 @@ class LogosToPython(Transformer):
         if idx < len(items):
             repent_body = items[idx]
             
-        res = f"if await t.wait_for_kairos(lambda: {expr}, {timeout}):\n{indent_body(body)}"
+        # Ensure lambda doesn't have await
+        lambda_expr = str(expr).replace("await ", "")
+        
+        # Try to find a Synod object in the expression (e.g., t.read or brotherhood.read)
+        import re
+        match = re.search(r'(\w+)\.read', lambda_expr)
+        synod_obj = match.group(1) if match else "brotherhood"
+        
+        res = f"if await {synod_obj}.wait_for_kairos(lambda: {lambda_expr}, {timeout}):\n{indent_body(body)}"
         if repent_body:
             res += f"\nelse:\n{indent_body(repent_body)}"
         return res
@@ -292,16 +334,39 @@ class LogosToPython(Transformer):
         return f"try:\n{indent_body(try_body)}\nexcept Exception as {error_name}:\n{indent_body(repent_body)}"
 
     def call_stmt(self, items): return items[0]
-    def await_stmt(self, items): return f"await {items[0]}"
-    def gather_stmt(self, items): return f"await asyncio.gather({', '.join(map(str, items))})"
-    def fast_stmt(self, items): return f"await asyncio.sleep({items[0]})"
+    def await_expr(self, items):
+        val = str(items[0])
+        if val.startswith("await "): return val
+        return f"await {val}"
+
+    def gather_expr(self, items):
+        # gather needs coroutines, so we strip the auto-added 'await' from call_expr
+        args = str(items[0]).replace("await ", "")
+        return f"await asyncio.gather({args})"
+
+    def fast_stmt(self, items): return f"await asyncio.sleep(float({items[0]}) / 1000.0)"
     def council_stmt(self, items): return f"async with {items[0]}._lock:\n{indent_body(items[-1])}"
     def behold_stmt(self, items): return f"print({items[0]})"
     def offer_stmt(self, items): return f"return {items[0]}"
+    def expr_stmt(self, items): return f"{items[0]}"
     def bin_op(self, items): return f"({items[0]} {items[1]} {items[2]})"
     def member_access(self, items): return f"{items[0]}.{items[1]}"
-    def call_expr(self, items): return f"{items[0]}({items[1] or ''})"
-    def witness_expr(self, items): return f"({items[0]})"
+    def call_expr(self, items):
+        target = items[0]
+        args = items[1] if len(items) > 1 else ""
+        return f"{target}({args})"
+    def witness_expr(self, items):
+        expr, typ = items[0], str(items[1])
+        if typ == "HolyInt": return f"int({expr})"
+        if typ == "Text": return f"str({expr})"
+        if typ == "HolyFloat": return f"float({expr})"
+        return f"({expr})"
+    def await_expr(self, items): return f"await {items[0]}"
+    def gather_expr(self, items): return f"await asyncio.gather({items[0]})"
+    def expr(self, items): return items[0]
+    def atom(self, items):
+        if len(items) == 3: return f"({items[1]})"
+        return str(items[0])
     def type_def(self, items): return ""
     def constraint(self, items): return ""
     def NAME(self, t): return str(t)
@@ -358,9 +423,11 @@ class LogosToBytecode(Transformer):
                 res.extend(item)
         return res
 
-    def service_def(self, items): return items[3]
-    def ministry_def(self, items): return items[3]
-    def intercessor_def(self, items): return items[3]
+    def statement(self, items): return items[0]
+
+    def service_def(self, items): return items[-1]
+    def ministry_def(self, items): return items[-1]
+    def intercessor_def(self, items): return items[-1]
 
     def behold_stmt(self, items):
         res = bytearray()
@@ -393,26 +460,22 @@ class LogosToBytecode(Transformer):
 
     def try_repent_stmt(self, items):
         res = bytearray()
-        # items[0] is the try block statements (already a bytearray from statements rule)
+        # items[0] is the try block statements
         res.extend(items[0])
         return res
 
     def cycle_stmt(self, items):
-        # cycle (expr) { statements } amen
-        # items: [expr, body] or [expr, limit, body]
+        # cycle expr ("limit" NUMBER)? "{" statements "}" "amen"
         expr = items[0]
         body = items[-1]
         
         res = bytearray()
-        start_label = 0 # Relative to this block
+        start_pos = 0 # Relative to this block
         
         # 1. Evaluate expr
         res.extend(expr)
         
         # 2. JZ to end
-        # We don't know the body length yet, so we'll backpatch or calculate
-        # JZ <offset> is 5 bytes (1 opcode + 4 offset)
-        # Offset is from the end of the JZ instruction
         jz_placeholder_pos = len(res)
         res.append(0x81)
         res.extend(b"\x00\x00\x00\x00")
@@ -421,20 +484,50 @@ class LogosToBytecode(Transformer):
         res.extend(body)
         
         # 4. JMP to start
-        # JMP <offset> is 5 bytes
-        # Offset = start_label - (current_pos + 5)
         current_pos = len(res)
         jmp_offset = 0 - (current_pos + 5)
         res.append(0x80)
         res.extend(struct.pack("<i", jmp_offset))
         
         # 5. Backpatch JZ
-        # Offset = current_pos_after_jmp - (jz_placeholder_pos + 5)
         end_pos = len(res)
         jz_offset = end_pos - (jz_placeholder_pos + 5)
         res[jz_placeholder_pos+1:jz_placeholder_pos+5] = struct.pack("<i", jz_offset)
         
         return res
+
+    def kairos_stmt(self, items):
+        # For now, LBC doesn't support full Kairos, so we treat it as a simple if
+        expr = items[0]
+        body = items[1] if not isinstance(items[1], list) else items[1] # Simplified
+        # This is complex to implement in LBC without labels. 
+        # Let's just return the body for now to avoid breaking compilation.
+        return body
+
+    def fast_stmt(self, items):
+        res = bytearray()
+        res.extend(items[0])
+        res.append(0x60)
+        return res
+
+    def bin_op(self, items):
+        left, op, right = items[0], str(items[1]), items[2]
+        res = bytearray()
+        if not isinstance(left, (bytearray, bytes)):
+            left = self.atom([left])
+        if not isinstance(right, (bytearray, bytes)):
+            right = self.atom([right])
+        res.extend(left)
+        res.extend(right)
+        op_map = {
+            "+": 0x70, "-": 0x71, "*": 0x72, "/": 0x73,
+            "==": 0x74, "!=": 0x75, "<": 0x76, ">": 0x77, "<=": 0x78, ">=": 0x79
+        }
+        res.append(op_map.get(op, 0x00))
+        return res
+
+    def expr(self, items): return items[0]
+    def expr_stmt(self, items): return items[0]
 
     def atom(self, items):
         if len(items) == 3 and str(items[0]) == "(":
@@ -532,6 +625,15 @@ class LogosToBytecode(Transformer):
     def member_access(self, items):
         return ("MEMBER", items[0], str(items[1]))
 
+    def await_expr(self, items):
+        if isinstance(items[0], bytearray):
+            return items[0]
+        return bytearray()
+
+    def gather_expr(self, items):
+        # No-op for now
+        return bytearray()
+
     def await_stmt(self, items):
         if isinstance(items[0], bytearray):
             return items[0]
@@ -545,36 +647,6 @@ class LogosToBytecode(Transformer):
     def gather_stmt(self, items):
         # No-op for now
         return bytearray()
-
-    def kairos_stmt(self, items):
-        # No-op for now
-        return bytearray()
-
-    def expr(self, items):
-        return items[0]
-
-    def bin_op(self, items):
-        left, op, right = items[0], str(items[1]), items[2]
-        res = bytearray()
-        res.extend(left)
-        res.extend(right)
-        if op == "+": res.append(0x70)
-        elif op == "-": res.append(0x71)
-        elif op == "*": res.append(0x72)
-        elif op == "/": res.append(0x73)
-        elif op == "==": res.append(0x74)
-        elif op == "!=": res.append(0x75)
-        elif op == "<": res.append(0x76)
-        elif op == ">": res.append(0x77)
-        elif op == "<=": res.append(0x78)
-        elif op == ">=": res.append(0x79)
-        return res
-
-    def fast_stmt(self, items):
-        res = bytearray()
-        res.extend(items[0])
-        res.append(0x60)
-        return res
 
     def NAME(self, t): return t
     def NUMBER(self, t): return t
@@ -597,6 +669,9 @@ def compile_and_run(filename, target="python"):
     
     if target == "python":
         py_code = LogosToPython().transform(tree)
+        print("--- GENERATED PYTHON ---")
+        print(py_code)
+        print("--- END GENERATED PYTHON ---")
         exec(py_code + "\nimport asyncio\nasyncio.run(main())", {"__name__": "__main__"})
     elif target == "lbc":
         transformer = LogosToBytecode()
