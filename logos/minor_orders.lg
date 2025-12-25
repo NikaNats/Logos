@@ -1,0 +1,16 @@
+service main() {
+    gift is_holy : Bool = Verily;
+    gift letter : Char = 'A';
+    gift mask : Byte = 0xFF;
+
+    // Type inference
+    gift inferred_bool = Nay;
+
+    kairos (is_holy == Verily) {
+        behold "It is true.";
+    } amen
+
+    behold letter;
+    behold mask;
+    behold inferred_bool;
+} amen

@@ -1,0 +1,5 @@
+import "module_a.lg";
+
+service main() {
+    helper();
+} amen

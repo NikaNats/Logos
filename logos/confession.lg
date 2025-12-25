@@ -1,0 +1,21 @@
+type HolyInt = essence {
+    not val < 0;
+} amen
+
+service main() {
+    gift name : Text = listen "What is your name? ";
+
+    behold "Welcome, ";
+    behold name;
+
+    gift age_str : Text = listen "Enter your age: ";
+
+    try {
+        gift age : HolyInt = witness age_str as HolyInt;
+
+        behold "In 10 years, you will be:";
+        behold age + 10;
+    } repent err {
+        behold "Ontological Error: Could not witness age.";
+    } amen
+} amen

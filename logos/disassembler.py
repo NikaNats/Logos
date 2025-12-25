@@ -27,6 +27,23 @@ def disassemble(filename):
                 val = struct.unpack("<d", f.read(8))[0]
                 print(f"  {i}: FLOAT {val}")
                 constants.append(val)
+            elif tag == 0x04:
+                b = f.read(1)[0]
+                val = (b != 0)
+                print(f"  {i}: BOOL {'Verily' if val else 'Nay'}")
+                constants.append(val)
+            elif tag == 0x05:
+                cp = struct.unpack("<I", f.read(4))[0]
+                try:
+                    ch = chr(cp)
+                except ValueError:
+                    ch = "\uFFFD"
+                print(f"  {i}: CHAR '{ch}'")
+                constants.append(f"'{ch}'")
+            elif tag == 0x06:
+                b = f.read(1)[0]
+                print(f"  {i}: BYTE 0x{b:02X}")
+                constants.append(f"0x{b:02X}")
         
         code_len = struct.unpack("<I", f.read(4))[0]
         print(f"Code ({code_len} bytes):")
@@ -37,6 +54,30 @@ def disassemble(filename):
             op = code[pc]
             pc += 1
             if op == 0x01: print(f"  {pc-1:04x}: HALT_AMEN")
+            elif op == 0x12:
+                off = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: GET_LOCAL {off}")
+            elif op == 0x30:
+                print(f"  {pc-1:04x}: LISTEN")
+            elif op == 0x90:
+                addr = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: CALL 0x{addr:08x}")
+            elif op == 0x91:
+                print(f"  {pc-1:04x}: RET")
+            elif op == 0xD0:
+                off = struct.unpack("<i", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: ENTER_TRY {off} (to {pc + off:04x})")
+            elif op == 0xD1:
+                print(f"  {pc-1:04x}: EXIT_TRY")
+            elif op == 0xD2:
+                print(f"  {pc-1:04x}: THROW")
+            elif op == 0xE0:
+                idx = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: ABSOLVE {idx} ({constants[idx]})")
             elif op == 0x10:
                 idx = struct.unpack("<I", code[pc:pc+4])[0]
                 pc += 4
@@ -49,6 +90,30 @@ def disassemble(filename):
                 idx = struct.unpack("<I", code[pc:pc+4])[0]
                 pc += 4
                 print(f"  {pc-5:04x}: PETITION {idx} ({constants[idx]})")
+            elif op == 0xA0:
+                count = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: GATHER {count}")
+            elif op == 0xA1:
+                print(f"  {pc-1:04x}: PARTAKE")
+            elif op == 0xA2:
+                print(f"  {pc-1:04x}: INSCRIBE")
+            elif op == 0xB0:
+                count = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: MOLD {count}")
+            elif op == 0xB1:
+                idx = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: REVEAL {idx} ({constants[idx]})")
+            elif op == 0xB2:
+                idx = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                print(f"  {pc-5:04x}: CONSECRATE {idx} ({constants[idx]})")
+            elif op == 0xC0:
+                print(f"  {pc-1:04x}: MEASURE")
+            elif op == 0xC1:
+                print(f"  {pc-1:04x}: PASSAGE")
             elif op == 0x40: print(f"  {pc-1:04x}: BEHOLD")
             elif op == 0x50:
                 tag = code[pc]

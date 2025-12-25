@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::io::{Read, Cursor};
+use std::io::{self, Read, Cursor, Write};
 use byteorder::{LittleEndian, ReadBytesExt};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 
@@ -11,6 +13,16 @@ enum Data {
     Int(i64),
     Float(f64),
     String(String),
+
+    Void,
+
+    // The Minor Orders
+    Boolean(bool),
+    Char(char),
+    Byte(u8),
+
+    Congregation(Rc<RefCell<Vec<Value>>>),
+    Icon(Rc<RefCell<HashMap<String, Value>>>),
 }
 
 #[derive(Debug, Clone)]
@@ -25,13 +37,44 @@ impl std::fmt::Display for Value {
             Data::Int(i) => write!(f, "{}", i),
             Data::Float(fl) => write!(f, "{}", fl),
             Data::String(s) => write!(f, "{}", s),
+            Data::Void => write!(f, "Void"),
+            Data::Boolean(b) => write!(f, "{}", if *b { "Verily" } else { "Nay" }),
+            Data::Char(c) => write!(f, "'{}'", c),
+            Data::Byte(b) => write!(f, "0x{:02X}", b),
+            Data::Congregation(v) => write!(f, "[List size: {}]", v.borrow().len()),
+            Data::Icon(_) => write!(f, "{Icon}"),
         }
     }
 }
 
+impl Value {
+    fn new_string(message: String) -> Self {
+        Value { data: Data::String(message), is_sacred: false }
+    }
+
+    fn new_void() -> Self {
+        Value { data: Data::Void, is_sacred: false }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CallFrame {
+    return_addr: usize,
+    base_ptr: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ExceptionHandler {
+    catch_addr: usize,
+    stack_depth: usize,
+    call_depth: usize,
+}
+
 struct SVM {
     stack: Vec<Value>,
-    synod: HashMap<String, Value>,
+    call_stack: Vec<CallFrame>,
+    exception_stack: Vec<ExceptionHandler>,
+    scopes: Vec<HashMap<String, Value>>,
     constants: Vec<Value>,
     pc: usize,
 }
@@ -40,9 +83,85 @@ impl SVM {
     fn new(constants: Vec<Value>) -> Self {
         SVM {
             stack: Vec::new(),
-            synod: HashMap::new(),
+            call_stack: Vec::new(),
+            exception_stack: Vec::new(),
+            scopes: vec![HashMap::new()],
             constants,
             pc: 0,
+        }
+    }
+    
+    fn lookup_symbol(&self, name: &str) -> Option<Value> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(v) = scope.get(name) {
+                return Some(v.clone());
+            }
+        }
+        None
+    }
+    
+    fn symbol_is_sacred_anywhere(&self, name: &str) -> bool {
+        for scope in self.scopes.iter().rev() {
+            if let Some(v) = scope.get(name) {
+                return v.is_sacred;
+            }
+        }
+        false
+    }
+    
+    fn assign_symbol(&mut self, name: String, val: Value) {
+        if self.symbol_is_sacred_anywhere(&name) {
+            self.throw(format!("Ontological Error: Attempt to corrupt Sacred Essence '{}'", name));
+            return;
+        }
+        
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, val);
+        } else {
+            self.throw("Ontological Error: No scope available".to_string());
+        }
+    }
+    
+    fn absolve_symbol(&mut self, name: &str) {
+        if self.symbol_is_sacred_anywhere(name) {
+            self.throw(format!("Ontological Error: Attempt to corrupt Sacred Essence '{}'", name));
+            return;
+        }
+        for scope in self.scopes.iter_mut().rev() {
+            if scope.contains_key(name) {
+                scope.insert(name.to_string(), Value::new_void());
+                return;
+            }
+        }
+        // If it doesn't exist, create it in the current scope.
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name.to_string(), Value::new_void());
+        }
+    }
+
+    fn throw(&mut self, message: String) {
+        if let Some(handler) = self.exception_stack.pop() {
+            println!("[!] Error encountered: {}. Seeking Repentance...", message);
+
+            self.stack.truncate(handler.stack_depth);
+            self.call_stack.truncate(handler.call_depth);
+            // scopes = global + one per call frame
+            let target_scopes_len = handler.call_depth.saturating_add(1);
+            self.scopes.truncate(target_scopes_len);
+            self.pc = handler.catch_addr;
+            self.stack.push(Value::new_string(message));
+        } else {
+            panic!("Anathema: Uncaught Sin - {}", message);
+        }
+    }
+
+    fn pop_or_throw(&mut self, context: &str) -> Option<Value> {
+        match self.stack.pop() {
+            Some(v) => Some(v),
+            None => {
+                self.throw(format!("Stack Underflow: {}", context));
+                None
+            }
         }
     }
 
@@ -56,14 +175,87 @@ impl SVM {
             pc += 1;
             match opcode {
                 0x01 => break, // HALT
+                0x12 => { // GET_LOCAL
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    stack_types.push("Any");
+                }
+                0x30 => { // LISTEN
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("String");
+                }
+                0x90 => { // CALL
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                }
+                0x91 => { // RET
+                }
+                0xD0 => { // ENTER_TRY
+                    cursor.read_i32::<LittleEndian>().unwrap();
+                    pc += 4;
+                }
+                0xD1 => { // EXIT_TRY
+                }
+                0xD2 => { // THROW
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0xE0 => { // ABSOLVE
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                }
+                0xA0 => { // GATHER
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    for _ in 0..count {
+                        if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    }
+                    stack_types.push("Any");
+                }
+                0xA1 => { // PARTAKE
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Any");
+                }
+                0xA2 => { // INSCRIBE
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0xB0 => { // MOLD
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    for _ in 0..count {
+                        if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                        if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    }
+                    stack_types.push("Any");
+                }
+                0xB1 => { // REVEAL
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    stack_types.push("Any");
+                }
+                0xB2 => { // CONSECRATE
+                    cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                }
                 0x10 => { // PUSH_ESS
                     let idx = cursor.read_u32::<LittleEndian>().unwrap();
                     pc += 4;
                     let val = &self.constants[idx as usize];
-                    stack_types.push(match val.data {
+                    stack_types.push(match &val.data {
                         Data::Int(_) => "Int",
                         Data::Float(_) => "Float",
                         Data::String(_) => "String",
+                        Data::Void => "Any",
+                        Data::Boolean(_) => "Boolean",
+                        Data::Char(_) => "Char",
+                        Data::Byte(_) => "Byte",
+                        Data::Congregation(_) => "Any",
+                        Data::Icon(_) => "Any",
                     });
                 }
                 0x11 => { // LOAD_ESS
@@ -95,16 +287,43 @@ impl SVM {
                     let a = stack_types.pop();
                     if a.is_none() || b.is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
                     let (ta, tb) = (a.unwrap(), b.unwrap());
-                    if (ta != "Int" && ta != "Any") || (tb != "Int" && tb != "Any") {
-                        panic!("Verification Error: Arithmetic requires Int at PC {}", pc-1);
+                    // ADD also supports String concatenation (Text communion)
+                    if opcode == 0x70 {
+                        let ok = (
+                            (ta == "Int" || ta == "Any") && (tb == "Int" || tb == "Any")
+                        ) || (
+                            (ta == "Float" || ta == "Any") && (tb == "Float" || tb == "Any")
+                        ) || (
+                            (ta == "String" || ta == "Any") && (tb == "String" || tb == "Any")
+                        );
+                        if !ok { panic!("Verification Error: ADD requires compatible natures at PC {}", pc-1); }
+                        // result is Any (could be Int/Float/String)
+                        stack_types.push("Any");
+                    } else {
+                        // SUB/MUL/DIV remain numeric
+                        if !((ta == "Int" || ta == "Any") && (tb == "Int" || tb == "Any")) {
+                            panic!("Verification Error: Arithmetic requires Int at PC {}", pc-1);
+                        }
+                        stack_types.push("Int");
                     }
+                }
+                0xC0 => { // MEASURE
+                    // Pop String -> push Int
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
                     stack_types.push("Int");
+                }
+                0xC1 => { // PASSAGE
+                    // Pop len, start, string -> push string
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("String");
                 }
                 0x74 | 0x75 | 0x76 | 0x77 | 0x78 | 0x79 => { // Comparison
                     let b = stack_types.pop();
                     let a = stack_types.pop();
                     if a.is_none() || b.is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
-                    stack_types.push("Int"); // Result is boolean (Int 0/1)
+                    stack_types.push("Boolean");
                 }
                 0x80 => { // JMP
                     cursor.read_i32::<LittleEndian>().unwrap();
@@ -113,7 +332,10 @@ impl SVM {
                 0x81 => { // JZ
                     cursor.read_i32::<LittleEndian>().unwrap();
                     pc += 4;
-                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    let t = stack_types.pop().unwrap_or_else(|| panic!("Verification Error: Stack Underflow at PC {}", pc-5));
+                    if t != "Boolean" && t != "Int" && t != "Any" {
+                        panic!("Verification Error: JZ requires Boolean (or Int for legacy) at PC {}", pc-5);
+                    }
                 }
                 _ => {}
             }
@@ -134,6 +356,236 @@ impl SVM {
                     println!("[+] Execution complete. Amen.");
                     return;
                 }
+                0x12 => { // GET_LOCAL <u32_offset>
+                    let offset = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    self.pc += 4;
+                    let frame = match self.call_stack.last() {
+                        Some(f) => f,
+                        None => {
+                            self.throw("Global Scope has no locals".to_string());
+                            continue;
+                        }
+                    };
+                    let abs_index = frame.base_ptr + offset;
+                    if abs_index >= self.stack.len() {
+                        self.throw("Local access out of bounds".to_string());
+                        continue;
+                    }
+                    let val = self.stack[abs_index].clone();
+                    self.stack.push(val);
+                }
+                0x30 => { // LISTEN
+                    let prompt_val = match self.pop_or_throw("LISTEN requires a prompt") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    if let Data::String(s) = prompt_val.data {
+                        print!("{}", s);
+                        io::stdout().flush().unwrap();
+                    } else {
+                        self.throw("Ontological Error: Prompt must be Text.".to_string());
+                        continue;
+                    }
+
+                    let mut buffer = String::new();
+                    match io::stdin().read_line(&mut buffer) {
+                        Ok(_) => {
+                            let clean_input = buffer.trim().to_string();
+                            self.stack.push(Value { data: Data::String(clean_input), is_sacred: false });
+                        }
+                        Err(error) => panic!("Revelation Error: Could not hear the input: {}", error),
+                    }
+                }
+                0x90 => { // CALL <u32_addr>
+                    let target_addr = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    self.pc += 4;
+                    let bp = self.stack.len();
+                    self.call_stack.push(CallFrame { return_addr: self.pc, base_ptr: bp });
+                    self.scopes.push(HashMap::new());
+                    self.pc = target_addr;
+                    continue;
+                }
+                0x91 => { // RET
+                    let frame = match self.call_stack.pop() {
+                        Some(f) => f,
+                        None => {
+                            self.throw("Ontological Error: Root of Hierarchy reached".to_string());
+                            continue;
+                        }
+                    };
+
+                    // Pop scope for this frame.
+                    if self.scopes.len() > 1 {
+                        self.scopes.pop();
+                    }
+
+                    let return_value = if self.stack.len() > frame.base_ptr {
+                        self.stack.pop()
+                    } else {
+                        None
+                    };
+                    self.stack.truncate(frame.base_ptr);
+                    if let Some(v) = return_value {
+                        self.stack.push(v);
+                    }
+
+                    self.pc = frame.return_addr;
+                    continue;
+                }
+                0xD0 => { // ENTER_TRY <i32_offset>
+                    let offset = cursor.read_i32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+                    let catch_addr = (self.pc as i64 + offset as i64) as usize;
+                    self.exception_stack.push(ExceptionHandler {
+                        catch_addr,
+                        stack_depth: self.stack.len(),
+                        call_depth: self.call_stack.len(),
+                    });
+                }
+                0xD1 => { // EXIT_TRY
+                    self.exception_stack.pop();
+                }
+                0xD2 => { // THROW
+                    let msg_val = match self.pop_or_throw("THROW requires a message") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let msg = msg_val.to_string();
+                    self.throw(msg);
+                    continue;
+                }
+                0xE0 => { // ABSOLVE <u32_name_idx>
+                    let idx = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+                    let name = match &self.constants[idx as usize].data {
+                        Data::String(s) => s.clone(),
+                        _ => {
+                            self.throw("Ontological Error: Absolution target must be a symbol".to_string());
+                            continue;
+                        }
+                    };
+
+                    if let Some(existing) = self.synod.get(&name) {
+                        if existing.is_sacred {
+                            self.throw(format!("Ontological Error: Attempt to corrupt Sacred Essence '{}'", name));
+                            continue;
+                        }
+                    }
+                    self.synod.insert(name, Value::new_void());
+                }
+                0xA0 => { // GATHER <u32_count>
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let mut items = Vec::with_capacity(count as usize);
+                    let mut is_sacred = false;
+                    for _ in 0..count {
+                        let v = self.stack.pop().expect("Stack Underflow");
+                        is_sacred = is_sacred || v.is_sacred;
+                        items.push(v);
+                    }
+                    items.reverse();
+
+                    self.stack.push(Value {
+                        data: Data::Congregation(Rc::new(RefCell::new(items))),
+                        is_sacred,
+                    });
+                }
+                0xA1 => { // PARTAKE
+                    let index_val = self.stack.pop().expect("Stack Underflow");
+                    let array_val = self.stack.pop().expect("Stack Underflow");
+
+                    let index = match index_val.data {
+                        Data::Int(i) => i as usize,
+                        _ => panic!("Ontological Error: Index must be HolyInt"),
+                    };
+
+                    if let Data::Congregation(vec_rc) = array_val.data {
+                        let vec = vec_rc.borrow();
+                        if index >= vec.len() { panic!("Ontological Error: Index out of bounds"); }
+                        self.stack.push(vec[index].clone());
+                    } else {
+                        panic!("Ontological Error: PARTAKE requires a Congregation");
+                    }
+                }
+                0xA2 => { // INSCRIBE
+                    let value = self.stack.pop().expect("Stack Underflow");
+                    let index_val = self.stack.pop().expect("Stack Underflow");
+                    let array_val = self.stack.pop().expect("Stack Underflow");
+
+                    let index = match index_val.data {
+                        Data::Int(i) => i as usize,
+                        _ => panic!("Ontological Error: Index must be HolyInt"),
+                    };
+
+                    if let Data::Congregation(vec_rc) = array_val.data {
+                        let mut vec = vec_rc.borrow_mut();
+                        if index >= vec.len() { panic!("Ontological Error: Index out of bounds"); }
+                        vec[index] = value;
+                    } else {
+                        panic!("Ontological Error: INSCRIBE requires a Congregation");
+                    }
+                }
+                0xB0 => { // MOLD <u32_count>
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let mut map = HashMap::new();
+                    let mut is_sacred = false;
+                    for _ in 0..count {
+                        let val = self.stack.pop().expect("Stack Underflow");
+                        let key_val = self.stack.pop().expect("Stack Underflow");
+                        is_sacred = is_sacred || val.is_sacred || key_val.is_sacred;
+
+                        let key = match key_val.data {
+                            Data::String(s) => s,
+                            _ => panic!("Ontological Error: Icon keys must be Text"),
+                        };
+                        map.insert(key, val);
+                    }
+
+                    self.stack.push(Value {
+                        data: Data::Icon(Rc::new(RefCell::new(map))),
+                        is_sacred,
+                    });
+                }
+                0xB1 => { // REVEAL <u32_key_idx>
+                    let idx = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let field_name = match &self.constants[idx as usize].data {
+                        Data::String(s) => s.clone(),
+                        _ => panic!("Ontological Error: Symbol name must be a string"),
+                    };
+
+                    let icon_val = self.stack.pop().expect("Stack Underflow");
+                    if let Data::Icon(map_rc) = icon_val.data {
+                        let map = map_rc.borrow();
+                        let val = map.get(&field_name).expect("Ontological Error: Unknown field");
+                        self.stack.push(val.clone());
+                    } else {
+                        panic!("Ontological Error: REVEAL requires an Icon");
+                    }
+                }
+                0xB2 => { // CONSECRATE <u32_key_idx>
+                    let idx = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let field_name = match &self.constants[idx as usize].data {
+                        Data::String(s) => s.clone(),
+                        _ => panic!("Ontological Error: Symbol name must be a string"),
+                    };
+
+                    let value = self.stack.pop().expect("Stack Underflow");
+                    let icon_val = self.stack.pop().expect("Stack Underflow");
+
+                    if let Data::Icon(map_rc) = icon_val.data {
+                        let mut map = map_rc.borrow_mut();
+                        map.insert(field_name, value);
+                    } else {
+                        panic!("Ontological Error: CONSECRATE requires an Icon");
+                    }
+                }
                 0x10 => { // PUSH_ESS <u32_idx>
                     let idx = cursor.read_u32::<LittleEndian>().unwrap();
                     self.pc += 4;
@@ -148,8 +600,13 @@ impl SVM {
                         Data::String(s) => s,
                         _ => panic!("Ontological Error: Symbol name must be a string"),
                     };
-                    let val = self.synod.get(name).expect("Ontological Error: Unknown spirit").clone();
-                    self.stack.push(val);
+                    match self.lookup_symbol(name) {
+                        Some(v) => self.stack.push(v),
+                        None => {
+                            self.throw(format!("Ontological Error: Unknown spirit '{}'", name));
+                            continue;
+                        }
+                    }
                 }
                 0x20 => { // PETITION <u32_idx>
                     let idx = cursor.read_u32::<LittleEndian>().unwrap();
@@ -158,13 +615,11 @@ impl SVM {
                         Data::String(s) => s,
                         _ => panic!("Ontological Error: Symbol name must be a string"),
                     };
-                    let val = self.stack.pop().expect("Stack Underflow");
-                    if let Some(existing) = self.synod.get(name) {
-                        if existing.is_sacred {
-                            panic!("Ontological Error: Attempt to corrupt Sacred Essence '{}'", name);
-                        }
-                    }
-                    self.synod.insert(name.clone(), val);
+                    let val = match self.pop_or_throw("PETITION requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    self.assign_symbol(name.clone(), val);
                 }
                 0x40 => { // BEHOLD
                     let val = self.stack.pop().expect("Stack Underflow");
@@ -180,6 +635,10 @@ impl SVM {
                                 Data::Int(i) => *i,
                                 Data::String(s) => s.parse::<i64>().expect("Ontological Error: Failed to witness Text as HolyInt"),
                                 Data::Float(f) => *f as i64,
+                                Data::Boolean(b) => if *b { 1 } else { 0 },
+                                Data::Char(c) => *c as u32 as i64,
+                                Data::Byte(b) => *b as i64,
+                                _ => panic!("Ontological Error: Cannot witness this nature as HolyInt"),
                             };
                             self.stack.push(Value { data: Data::Int(new_val), is_sacred: false });
                         }
@@ -192,6 +651,10 @@ impl SVM {
                                 Data::Int(i) => *i as f64,
                                 Data::String(s) => s.parse::<f64>().expect("Ontological Error: Failed to witness Text as HolyFloat"),
                                 Data::Float(f) => *f,
+                                Data::Boolean(b) => if *b { 1.0 } else { 0.0 },
+                                Data::Char(c) => *c as u32 as f64,
+                                Data::Byte(b) => *b as f64,
+                                _ => panic!("Ontological Error: Cannot witness this nature as HolyFloat"),
                             };
                             self.stack.push(Value { data: Data::Float(new_val), is_sacred: false });
                         }
@@ -205,12 +668,48 @@ impl SVM {
                     }
                 }
                 0x70 => { // ADD
-                    let b = self.stack.pop().expect("Stack Underflow");
-                    let a = self.stack.pop().expect("Stack Underflow");
+                    let b = match self.pop_or_throw("ADD requires rhs") { Some(v) => v, None => continue };
+                    let a = match self.pop_or_throw("ADD requires lhs") { Some(v) => v, None => continue };
                     let is_sacred = a.is_sacred || b.is_sacred;
-                    match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va + vb), is_sacred }),
-                        _ => panic!("Ontological Error: Type mismatch in Synergy"),
+                    match (a.data, b.data) {
+                        (Data::Int(va), Data::Int(vb)) => {
+                            self.stack.push(Value { data: Data::Int(va + vb), is_sacred });
+                        }
+                        (Data::Float(va), Data::Float(vb)) => {
+                            self.stack.push(Value { data: Data::Float(va + vb), is_sacred });
+                        }
+                        (Data::String(sa), Data::String(sb)) => {
+                            let combined = format!("{}{}", sa, sb);
+                            self.stack.push(Value { data: Data::String(combined), is_sacred });
+                        }
+                        _ => {
+                            self.throw("Schism Error: Incompatible natures for Synergy (Type Mismatch)".to_string());
+                            continue;
+                        }
+                    }
+                }
+                0xC0 => { // MEASURE
+                    let val = self.stack.pop().expect("Stack Underflow");
+                    if let Data::String(s) = val.data {
+                        let count = s.chars().count() as i64;
+                        self.stack.push(Value { data: Data::Int(count), is_sacred: false });
+                    } else {
+                        panic!("Ontological Error: Only Text can be Measured.");
+                    }
+                }
+                0xC1 => { // PASSAGE
+                    let len_val = self.stack.pop().expect("Stack Underflow");
+                    let start_val = self.stack.pop().expect("Stack Underflow");
+                    let str_val = self.stack.pop().expect("Stack Underflow");
+
+                    let len = match len_val.data { Data::Int(i) => i as usize, _ => panic!("Length must be HolyInt") };
+                    let start = match start_val.data { Data::Int(i) => i as usize, _ => panic!("Start must be HolyInt") };
+
+                    if let Data::String(s) = str_val.data {
+                        let substring: String = s.chars().skip(start).take(len).collect();
+                        self.stack.push(Value { data: Data::String(substring), is_sacred: false });
+                    } else {
+                        panic!("Ontological Error: Only Text can be divided into Passages.");
                     }
                 }
                 0x71 => { // SUB
@@ -232,12 +731,21 @@ impl SVM {
                     }
                 }
                 0x73 => { // DIV
-                    let b = self.stack.pop().expect("Stack Underflow");
-                    let a = self.stack.pop().expect("Stack Underflow");
+                    let b = match self.pop_or_throw("DIV requires rhs") { Some(v) => v, None => continue };
+                    let a = match self.pop_or_throw("DIV requires lhs") { Some(v) => v, None => continue };
                     let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(va / vb), is_sacred }),
-                        _ => panic!("Ontological Error: Type mismatch in Synergy"),
+                        (Data::Int(va), Data::Int(vb)) => {
+                            if *vb == 0 {
+                                self.throw("Division by Zero".to_string());
+                                continue;
+                            }
+                            self.stack.push(Value { data: Data::Int(va / vb), is_sacred })
+                        }
+                        _ => {
+                            self.throw("Ontological Error: Type mismatch in Synergy".to_string());
+                            continue;
+                        }
                     }
                 }
                 0x74 => { // EQ
@@ -246,10 +754,14 @@ impl SVM {
                     let is_sacred = a.is_sacred || b.is_sacred;
                     let res = match (&a.data, &b.data) {
                         (Data::Int(va), Data::Int(vb)) => va == vb,
+                        (Data::Float(va), Data::Float(vb)) => va == vb,
                         (Data::String(va), Data::String(vb)) => va == vb,
+                        (Data::Boolean(va), Data::Boolean(vb)) => va == vb,
+                        (Data::Char(va), Data::Char(vb)) => va == vb,
+                        (Data::Byte(va), Data::Byte(vb)) => va == vb,
                         _ => false,
                     };
-                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred });
+                    self.stack.push(Value { data: Data::Boolean(res), is_sacred });
                 }
                 0x75 => { // NE
                     let b = self.stack.pop().expect("Stack Underflow");
@@ -257,17 +769,24 @@ impl SVM {
                     let is_sacred = a.is_sacred || b.is_sacred;
                     let res = match (&a.data, &b.data) {
                         (Data::Int(va), Data::Int(vb)) => va != vb,
+                        (Data::Float(va), Data::Float(vb)) => va != vb,
                         (Data::String(va), Data::String(vb)) => va != vb,
+                        (Data::Boolean(va), Data::Boolean(vb)) => va != vb,
+                        (Data::Char(va), Data::Char(vb)) => va != vb,
+                        (Data::Byte(va), Data::Byte(vb)) => va != vb,
                         _ => true,
                     };
-                    self.stack.push(Value { data: Data::Int(if res { 1 } else { 0 }), is_sacred });
+                    self.stack.push(Value { data: Data::Boolean(res), is_sacred });
                 }
                 0x76 => { // LT
                     let b = self.stack.pop().expect("Stack Underflow");
                     let a = self.stack.pop().expect("Stack Underflow");
                     let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va < vb { 1 } else { 0 }), is_sacred }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Boolean(va < vb), is_sacred }),
+                        (Data::Float(va), Data::Float(vb)) => self.stack.push(Value { data: Data::Boolean(va < vb), is_sacred }),
+                        (Data::Char(va), Data::Char(vb)) => self.stack.push(Value { data: Data::Boolean(va < vb), is_sacred }),
+                        (Data::Byte(va), Data::Byte(vb)) => self.stack.push(Value { data: Data::Boolean(va < vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
@@ -276,7 +795,10 @@ impl SVM {
                     let a = self.stack.pop().expect("Stack Underflow");
                     let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va > vb { 1 } else { 0 }), is_sacred }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Boolean(va > vb), is_sacred }),
+                        (Data::Float(va), Data::Float(vb)) => self.stack.push(Value { data: Data::Boolean(va > vb), is_sacred }),
+                        (Data::Char(va), Data::Char(vb)) => self.stack.push(Value { data: Data::Boolean(va > vb), is_sacred }),
+                        (Data::Byte(va), Data::Byte(vb)) => self.stack.push(Value { data: Data::Boolean(va > vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
@@ -285,7 +807,10 @@ impl SVM {
                     let a = self.stack.pop().expect("Stack Underflow");
                     let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va <= vb { 1 } else { 0 }), is_sacred }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Boolean(va <= vb), is_sacred }),
+                        (Data::Float(va), Data::Float(vb)) => self.stack.push(Value { data: Data::Boolean(va <= vb), is_sacred }),
+                        (Data::Char(va), Data::Char(vb)) => self.stack.push(Value { data: Data::Boolean(va <= vb), is_sacred }),
+                        (Data::Byte(va), Data::Byte(vb)) => self.stack.push(Value { data: Data::Boolean(va <= vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
@@ -294,7 +819,10 @@ impl SVM {
                     let a = self.stack.pop().expect("Stack Underflow");
                     let is_sacred = a.is_sacred || b.is_sacred;
                     match (&a.data, &b.data) {
-                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Int(if va >= vb { 1 } else { 0 }), is_sacred }),
+                        (Data::Int(va), Data::Int(vb)) => self.stack.push(Value { data: Data::Boolean(va >= vb), is_sacred }),
+                        (Data::Float(va), Data::Float(vb)) => self.stack.push(Value { data: Data::Boolean(va >= vb), is_sacred }),
+                        (Data::Char(va), Data::Char(vb)) => self.stack.push(Value { data: Data::Boolean(va >= vb), is_sacred }),
+                        (Data::Byte(va), Data::Byte(vb)) => self.stack.push(Value { data: Data::Boolean(va >= vb), is_sacred }),
                         _ => panic!("Ontological Error: Type mismatch in Synergy"),
                     }
                 }
@@ -307,13 +835,28 @@ impl SVM {
                 0x81 => { // JZ <i32_offset>
                     let offset = cursor.read_i32::<LittleEndian>().unwrap();
                     self.pc += 4;
-                    let val = self.stack.pop().expect("Stack Underflow");
-                    if let Data::Int(0) = val.data {
+                    let val = match self.pop_or_throw("JZ requires a condition") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let condition = match val.data {
+                        Data::Boolean(b) => b,
+                        Data::Int(i) => i != 0,
+                        _ => {
+                            self.throw("Ontological Error: Condition must be Boolean".to_string());
+                            continue;
+                        }
+                    };
+
+                    if !condition {
                         self.pc = (self.pc as i64 + offset as i64) as usize;
                         continue;
                     }
                 }
-                _ => panic!("Ontological Error: Unknown Spirit 0x{:02X}", opcode),
+                _ => {
+                    self.throw(format!("Ontological Error: Unknown Spirit 0x{:02X}", opcode));
+                    continue;
+                }
             }
         }
     }
@@ -363,9 +906,16 @@ fn main() {
                 cursor.read_exact(&mut s_buf).unwrap();
                 constants.push(Value { data: Data::String(String::from_utf8(s_buf).unwrap()), is_sacred: false });
             }
-            0x03 => {
-                let val = cursor.read_f64::<LittleEndian>().unwrap();
-                constants.push(Value { data: Data::Float(val), is_sacred: false });
+
+                    self.absolve_symbol(&name);
+            0x05 => {
+                let cp = cursor.read_u32::<LittleEndian>().unwrap();
+                let ch = std::char::from_u32(cp).unwrap_or('\u{FFFD}');
+                constants.push(Value { data: Data::Char(ch), is_sacred: false });
+            }
+            0x06 => {
+                let b = cursor.read_u8().unwrap();
+                constants.push(Value { data: Data::Byte(b), is_sacred: false });
             }
             _ => panic!("Ontological Error: Invalid constant tag"),
         }

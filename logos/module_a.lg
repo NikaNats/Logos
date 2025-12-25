@@ -1,0 +1,3 @@
+service helper() {
+    behold "from helper";
+} amen

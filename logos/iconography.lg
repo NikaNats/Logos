@@ -1,0 +1,33 @@
+type HolyInt = essence {
+    not val < 0;
+} amen
+
+structure Disciple {
+    name: Text;
+    age: HolyInt;
+} amen
+
+service main() {
+    gift numbers : Void = [10, 20, 30];
+
+    behold "First Number:";
+    behold numbers[0];
+
+    numbers[1] = 555;
+
+    behold "Modified Second Number:";
+    behold numbers[1];
+
+    gift peter : Void = new Disciple {
+        name = "Peter",
+        age = 33
+    };
+
+    behold "Disciple Name:";
+    behold peter.name;
+
+    peter.age = 34;
+
+    behold "Disciple New Age:";
+    behold peter.age;
+} amen

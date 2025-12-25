@@ -1,0 +1,5 @@
+service main() {
+    gift a = [1,2,3];
+    absolve a;
+    behold a;
+} amen
