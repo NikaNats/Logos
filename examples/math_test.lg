@@ -1,0 +1,16 @@
+service main() {
+    gift a : HolyInt = 0 - 50;
+    gift b : HolyInt = 20;
+
+    gift dist : HolyInt = abs(a);
+    gift highest : HolyInt = max(dist, b);
+
+    say("The absolute value is:");
+    say_int(dist);
+
+    say("The highest value is:");
+    say_int(highest);
+
+    say("Chanting:");
+    say(chant("Amen!", 3));
+} amen

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::File;
 use std::io::{self, Read, Cursor, Write};
@@ -77,10 +77,15 @@ struct SVM {
     scopes: Vec<HashMap<String, Value>>,
     constants: Vec<Value>,
     pc: usize,
+
+    // Debugger Fields (The Confessional)
+    debug_mode: bool,
+    breakpoints: HashSet<usize>,
+    symbol_map: HashMap<usize, String>,
 }
 
 impl SVM {
-    fn new(constants: Vec<Value>) -> Self {
+    fn new(constants: Vec<Value>, debug_mode: bool) -> Self {
         SVM {
             stack: Vec::new(),
             call_stack: Vec::new(),
@@ -88,6 +93,218 @@ impl SVM {
             scopes: vec![HashMap::new()],
             constants,
             pc: 0,
+
+            debug_mode,
+            breakpoints: HashSet::new(),
+            symbol_map: HashMap::new(),
+        }
+    }
+
+    fn peek_u32(&self, code: &[u8], idx: usize) -> u32 {
+        if idx + 4 > code.len() {
+            return 0;
+        }
+        let bytes: [u8; 4] = code[idx..idx + 4].try_into().unwrap();
+        u32::from_le_bytes(bytes)
+    }
+
+    fn peek_i32(&self, code: &[u8], idx: usize) -> i32 {
+        if idx + 4 > code.len() {
+            return 0;
+        }
+        let bytes: [u8; 4] = code[idx..idx + 4].try_into().unwrap();
+        i32::from_le_bytes(bytes)
+    }
+
+    fn disassemble_current(&self, code: &[u8]) -> String {
+        if self.pc >= code.len() {
+            return "END_OF_LITURGY".to_string();
+        }
+
+        let op = code[self.pc];
+        match op {
+            0x01 => "HALT_AMEN".to_string(),
+            0x10 => {
+                let idx = self.peek_u32(code, self.pc + 1) as usize;
+                if idx < self.constants.len() {
+                    format!("PUSH_ESS [{}] ({})", idx, self.constants[idx])
+                } else {
+                    format!("PUSH_ESS [{}]", idx)
+                }
+            }
+            0x11 => {
+                let idx = self.peek_u32(code, self.pc + 1) as usize;
+                if idx < self.constants.len() {
+                    format!("LOAD_ESS [{}] ({})", idx, self.constants[idx])
+                } else {
+                    format!("LOAD_ESS [{}]", idx)
+                }
+            }
+            0x12 => {
+                let off = self.peek_u32(code, self.pc + 1);
+                format!("GET_LOCAL {}", off)
+            }
+            0x20 => {
+                let idx = self.peek_u32(code, self.pc + 1) as usize;
+                if idx < self.constants.len() {
+                    format!("PETITION [{}] ({})", idx, self.constants[idx])
+                } else {
+                    format!("PETITION [{}]", idx)
+                }
+            }
+            0x30 => "LISTEN".to_string(),
+            0x40 => "BEHOLD".to_string(),
+            0x50 => "WITNESS".to_string(),
+            0x60 => "FAST".to_string(),
+            0x70 => "ADD".to_string(),
+            0x71 => "SUB".to_string(),
+            0x72 => "MUL".to_string(),
+            0x73 => "DIV".to_string(),
+            0x74 => "EQ".to_string(),
+            0x75 => "NE".to_string(),
+            0x76 => "LT".to_string(),
+            0x77 => "GT".to_string(),
+            0x78 => "LE".to_string(),
+            0x79 => "GE".to_string(),
+            0x80 => {
+                let offset = self.peek_i32(code, self.pc + 1);
+                format!("JMP {}", offset)
+            }
+            0x81 => {
+                let offset = self.peek_i32(code, self.pc + 1);
+                format!("JZ {}", offset)
+            }
+            0x82 => {
+                let count = self.peek_u32(code, self.pc + 1);
+                format!("DISCERN (cases: {})", count)
+            }
+            0x90 => {
+                let addr = self.peek_u32(code, self.pc + 1);
+                if let Some(label) = self.symbol_map.get(&(addr as usize)) {
+                    format!("CALL @{:04X} ({})", addr, label)
+                } else {
+                    format!("CALL @{:04X}", addr)
+                }
+            }
+            0x91 => "RET".to_string(),
+            0xA0 => {
+                let count = self.peek_u32(code, self.pc + 1);
+                format!("GATHER (Size: {})", count)
+            }
+            0xA1 => "PARTAKE".to_string(),
+            0xA2 => "INSCRIBE".to_string(),
+            0xA3 => "ALLOC".to_string(),
+            0xB0 => {
+                let count = self.peek_u32(code, self.pc + 1);
+                format!("MOLD (Pairs: {})", count)
+            }
+            0xB1 => {
+                let idx = self.peek_u32(code, self.pc + 1) as usize;
+                if idx < self.constants.len() {
+                    format!("REVEAL [{}] ({})", idx, self.constants[idx])
+                } else {
+                    format!("REVEAL [{}]", idx)
+                }
+            }
+            0xB2 => {
+                let idx = self.peek_u32(code, self.pc + 1) as usize;
+                if idx < self.constants.len() {
+                    format!("CONSECRATE [{}] ({})", idx, self.constants[idx])
+                } else {
+                    format!("CONSECRATE [{}]", idx)
+                }
+            }
+            0xC0 => "MEASURE".to_string(),
+            0xC1 => "PASSAGE".to_string(),
+            0xD0 => "ENTER_TRY".to_string(),
+            0xD1 => "EXIT_TRY".to_string(),
+            0xD2 => "THROW".to_string(),
+            0xE0 => "ABSOLVE".to_string(),
+            _ => format!("UNKNOWN (0x{:02X})", op),
+        }
+    }
+
+    fn enter_confessional(&mut self, code: &[u8]) {
+        println!("\n=== THE CONFESSIONAL (Addr: 0x{:04X}) ===", self.pc);
+        println!("Next:  {}", self.disassemble_current(code));
+
+        print!("Stack: [");
+        for i in 0..3 {
+            if self.stack.len() > i {
+                let idx = self.stack.len() - 1 - i;
+                print!(" ({}) {} ", idx, self.stack[idx]);
+            }
+        }
+        println!("] (Size: {})", self.stack.len());
+
+        loop {
+            print!("logos-dbg> ");
+            io::stdout().flush().unwrap();
+
+            let mut input = String::new();
+            if io::stdin().read_line(&mut input).is_err() {
+                println!("Revelation Error: Could not hear the input.");
+                continue;
+            }
+            let input = input.trim();
+            let parts: Vec<&str> = input.split_whitespace().collect();
+            if parts.is_empty() {
+                continue;
+            }
+
+            match parts[0] {
+                "s" | "step" => {
+                    self.debug_mode = true;
+                    break;
+                }
+                "c" | "continue" => {
+                    self.debug_mode = false;
+                    println!("[+] Resuming Liturgy...");
+                    break;
+                }
+                "b" | "break" => {
+                    if parts.len() > 1 {
+                        let addr_str = parts[1];
+                        let addr = if addr_str.starts_with("0x") {
+                            usize::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
+                        } else {
+                            addr_str.parse::<usize>().unwrap_or(0)
+                        };
+                        self.breakpoints.insert(addr);
+                        println!("[+] Breakpoint set at 0x{:04X}", addr);
+                    } else {
+                        println!("Usage: b <address>");
+                    }
+                }
+                "st" | "stack" => {
+                    println!("--- Full Stack Dump ---");
+                    for (i, val) in self.stack.iter().enumerate().rev() {
+                        println!("[{:03}] {}", i, val);
+                    }
+                }
+                "m" | "mem" => {
+                    println!("--- Synod (Global Scope) ---");
+                    if let Some(global) = self.scopes.first() {
+                        for (k, v) in global {
+                            println!("'{}': {}", k, v);
+                        }
+                    }
+                }
+                "q" | "quit" => {
+                    println!("Amen.");
+                    std::process::exit(0);
+                }
+                "h" | "help" => {
+                    println!("Commands:");
+                    println!("  s, step      - Execute next instruction");
+                    println!("  c, continue  - Run until breakpoint");
+                    println!("  b, break <A> - Set breakpoint at address A");
+                    println!("  st, stack    - Dump data stack");
+                    println!("  m, mem       - Dump global synod variables");
+                    println!("  q, quit      - Exit");
+                }
+                _ => println!("Unknown prayer. Try 'help'."),
+            }
         }
     }
     
@@ -221,6 +438,10 @@ impl SVM {
                     if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
                     if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
                 }
+                0xA3 => { // ALLOC
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Any");
+                }
                 0xB0 => { // MOLD
                     let count = cursor.read_u32::<LittleEndian>().unwrap();
                     pc += 4;
@@ -337,6 +558,18 @@ impl SVM {
                         panic!("Verification Error: JZ requires Boolean (or Int for legacy) at PC {}", pc-5);
                     }
                 }
+                0x82 => { // DISCERN
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    pc += 4;
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-5); }
+                    for _ in 0..count {
+                        cursor.read_i64::<LittleEndian>().unwrap();
+                        cursor.read_i32::<LittleEndian>().unwrap();
+                        pc += 12;
+                    }
+                    cursor.read_i32::<LittleEndian>().unwrap();
+                    pc += 4;
+                }
                 _ => {}
             }
         }
@@ -345,8 +578,16 @@ impl SVM {
 
     fn execute(&mut self, code: Vec<u8>) {
         self.verify(&code);
-        let mut cursor = Cursor::new(code);
-        while self.pc < cursor.get_ref().len() {
+        let mut cursor = Cursor::new(&code);
+        while self.pc < code.len() {
+
+            // --- DEBUGGER HOOK ---
+            if self.debug_mode || self.breakpoints.contains(&self.pc) {
+                self.debug_mode = true;
+                self.enter_confessional(&code);
+            }
+            // ---------------------
+
             cursor.set_position(self.pc as u64);
             let opcode = cursor.read_u8().unwrap();
             self.pc += 1;
@@ -465,13 +706,7 @@ impl SVM {
                         }
                     };
 
-                    if let Some(existing) = self.synod.get(&name) {
-                        if existing.is_sacred {
-                            self.throw(format!("Ontological Error: Attempt to corrupt Sacred Essence '{}'", name));
-                            continue;
-                        }
-                    }
-                    self.synod.insert(name, Value::new_void());
+                    self.absolve_symbol(&name);
                 }
                 0xA0 => { // GATHER <u32_count>
                     let count = cursor.read_u32::<LittleEndian>().unwrap();
@@ -489,6 +724,24 @@ impl SVM {
                     self.stack.push(Value {
                         data: Data::Congregation(Rc::new(RefCell::new(items))),
                         is_sacred,
+                    });
+                }
+                0xA3 => { // ALLOC
+                    let size_val = match self.pop_or_throw("ALLOC requires a size") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let size = match size_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: Size must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+                    let vec = vec![Value::new_void(); size];
+                    self.stack.push(Value {
+                        data: Data::Congregation(Rc::new(RefCell::new(vec))),
+                        is_sacred: false,
                     });
                 }
                 0xA1 => { // PARTAKE
@@ -689,13 +942,53 @@ impl SVM {
                     }
                 }
                 0xC0 => { // MEASURE
-                    let val = self.stack.pop().expect("Stack Underflow");
-                    if let Data::String(s) = val.data {
-                        let count = s.chars().count() as i64;
-                        self.stack.push(Value { data: Data::Int(count), is_sacred: false });
-                    } else {
-                        panic!("Ontological Error: Only Text can be Measured.");
+                    let val = match self.pop_or_throw("MEASURE requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let len = match val.data {
+                        Data::String(s) => s.chars().count(),
+                        Data::Congregation(v) => v.borrow().len(),
+                        Data::Icon(m) => m.borrow().len(),
+                        _ => {
+                            self.throw("Ontological Error: Cannot measure this essence.".to_string());
+                            continue;
+                        }
+                    };
+                    self.stack.push(Value { data: Data::Int(len as i64), is_sacred: false });
+                }
+                0x82 => { // DISCERN
+                    let count = cursor.read_u32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let target_val = match self.pop_or_throw("DISCERN requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let target_int = match target_val.data {
+                        Data::Int(i) => i,
+                        _ => {
+                            self.throw("Discernment currently requires HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    let mut matched_offset: Option<i32> = None;
+                    for _ in 0..count {
+                        let case_val = cursor.read_i64::<LittleEndian>().unwrap();
+                        let offset = cursor.read_i32::<LittleEndian>().unwrap();
+                        self.pc += 12;
+                        if matched_offset.is_none() && target_int == case_val {
+                            matched_offset = Some(offset);
+                        }
                     }
+                    let default_offset = cursor.read_i32::<LittleEndian>().unwrap();
+                    self.pc += 4;
+
+                    let jump_offset = matched_offset.unwrap_or(default_offset);
+                    let new_pc = (self.pc as i64 + jump_offset as i64) as usize;
+                    self.pc = new_pc;
+                    continue;
                 }
                 0xC1 => { // PASSAGE
                     let len_val = self.stack.pop().expect("Stack Underflow");
@@ -865,9 +1158,11 @@ impl SVM {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        println!("Usage: logos-svm <file.lbc>");
+        println!("Usage: logos-svm <file.lbc> [--debug]");
         return;
     }
+
+    let debug_mode = args.len() > 2 && args[2] == "--debug";
 
     let mut file = File::open(&args[1]).expect("Could not open file");
     let mut buffer = Vec::new();
@@ -906,8 +1201,14 @@ fn main() {
                 cursor.read_exact(&mut s_buf).unwrap();
                 constants.push(Value { data: Data::String(String::from_utf8(s_buf).unwrap()), is_sacred: false });
             }
-
-                    self.absolve_symbol(&name);
+            0x03 => {
+                let val = cursor.read_f64::<LittleEndian>().unwrap();
+                constants.push(Value { data: Data::Float(val), is_sacred: false });
+            }
+            0x04 => {
+                let b = cursor.read_u8().unwrap();
+                constants.push(Value { data: Data::Boolean(b != 0), is_sacred: false });
+            }
             0x05 => {
                 let cp = cursor.read_u32::<LittleEndian>().unwrap();
                 let ch = std::char::from_u32(cp).unwrap_or('\u{FFFD}');
@@ -926,6 +1227,6 @@ fn main() {
     let mut code = vec![0u8; code_len as usize];
     cursor.read_exact(&mut code).unwrap();
 
-    let mut svm = SVM::new(constants);
+    let mut svm = SVM::new(constants, debug_mode);
     svm.execute(code);
 }

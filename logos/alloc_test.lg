@@ -1,0 +1,4 @@
+service main() {
+    gift a = alloc(3);
+    behold measure(a);
+} amen

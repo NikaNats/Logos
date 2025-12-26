@@ -1,4 +1,6 @@
 ﻿import sys, os, struct, hashlib
+import argparse
+import keyword
 import z3
 import re
 from lark import Lark, Transformer, Token, Tree
@@ -44,7 +46,8 @@ class ByteConst:
         return hash(("ByteConst", self.value))
 
 CANON_TYPES = {
-    "HolyInt": ["isinstance({name}, int)", "{name} >= 0"],
+    # HolyInt is a general signed integer (range constraints come from custom essence types).
+    "HolyInt": ["isinstance({name}, int)"],
     "Text": ["isinstance({name}, str)"],
     "Void": [],
     "Synod": []
@@ -315,6 +318,8 @@ class DiakrisisEngine(Interpreter):
                     return "HolyInt"
                 if fn == "passage":
                     return "Text"
+                if fn == "alloc":
+                    return "Synod"
                 return None
             if node.data == "bin_op":
                 left, op_token, right = node.children[0], str(node.children[1]), node.children[2]
@@ -331,8 +336,10 @@ class DiakrisisEngine(Interpreter):
         return None
 
     def _get_constraints(self, typ):
+        # HolyInt is treated as a general signed integer. Use custom `type ... = essence { ... }`
+        # if you want non-negative ranges (e.g., SacredBalance).
         if typ == "HolyInt":
-            return [("<", Token('NUMBER', '0'))]
+            return []
         return self.custom_types.get(typ, [])
 
     def _to_z3(self, tree):
@@ -357,6 +364,20 @@ class DiakrisisEngine(Interpreter):
         return 0
 
 class LogosToPython(Transformer):
+    class _PyParams:
+        __slots__ = ("value",)
+
+        def __init__(self, value: str):
+            self.value = value
+
+        def __str__(self) -> str:
+            return self.value
+
+    @staticmethod
+    def _py_ident(name: str) -> str:
+        # Avoid generating invalid Python (e.g., async def not(...):)
+        return f"{name}_" if keyword.iskeyword(name) else name
+
     def statements(self, items): return items
 
     def start(self, items):
@@ -409,14 +430,11 @@ class LogosToPython(Transformer):
 
     def service_def(self, items):
         # service_def: "service" NAME "(" params? ")" ("->" NAME)? "{" statements "}" "amen"
-        name = items[0]
+        name = self._py_ident(str(items[0]))
         params = ""
         for it in items[1:-1]:
-            if isinstance(it, str):
-                # could be params string OR return type; params string contains commas or is empty
-                params = it if "(" not in it else params
-        if len(items) >= 3 and isinstance(items[1], str) and "," in items[1]:
-            params = items[1]
+            if isinstance(it, LogosToPython._PyParams):
+                params = str(it)
         body = items[-1]
         prefix = "async "
         return f"{prefix}def {name}({params}):\n{indent_body(body)}"
@@ -433,7 +451,8 @@ class LogosToPython(Transformer):
     def field_decl(self, items):
         return ""
 
-    def params(self, items): return ", ".join(map(str, items))
+    def params(self, items):
+        return LogosToPython._PyParams(", ".join(map(str, items)))
     def param(self, items):
         # param: NAME (":" NAME)?
         return str(items[0])
@@ -520,6 +539,29 @@ class LogosToPython(Transformer):
         try_body, error_name, repent_body = items[0], items[1], items[2]
         return f"try:\n{indent_body(try_body)}\nexcept Exception as {error_name}:\n{indent_body(repent_body)}"
 
+    def case_label(self, items):
+        return str(items[0])
+
+    def inspect_case(self, items):
+        # inspect_case: "case" case_label ":" statement
+        return (str(items[0]), items[1])
+
+    def inspect_stmt(self, items):
+        # inspect_stmt: inspect(expr) { case ... } amen
+        expr = items[0]
+        cases = items[1:]
+        table = {label: body for (label, body) in cases}
+
+        then_body = table.get("Verily")
+        else_body = table.get("Nay")
+        if else_body is None:
+            else_body = table.get("_")
+
+        if_code = f"if {expr}:\n{indent_body([then_body])}"
+        if else_body is not None:
+            if_code += f"\nelse:\n{indent_body([else_body])}"
+        return if_code
+
     def call_stmt(self, items): return items[0]
     def await_expr(self, items):
         val = str(items[0])
@@ -552,8 +594,10 @@ class LogosToPython(Transformer):
 
     def call_expr(self, items):
         # call_expr: NAME call_suffix
-        name = items[0]
+        name = self._py_ident(str(items[0]))
         args = items[1] if len(items) > 1 else ""
+        if name == "alloc":
+            return f"([None] * int({args}))"
         return f"{name}({args})"
 
     def dot_access(self, items):
@@ -953,6 +997,51 @@ class LogosToBytecode(Transformer):
 
         return res
 
+    def case_label(self, items):
+        return str(items[0])
+
+    def inspect_case(self, items):
+        # inspect_case: "case" case_label ":" statement
+        return (str(items[0]), items[1])
+
+    def inspect_stmt(self, items):
+        # inspect_stmt: "inspect" "(" expr ")" "{" inspect_case+ "}" "amen"
+        expr = items[0]
+        cases = items[1:]
+        table = {label: body for (label, body) in cases}
+
+        then_body = table.get("Verily", bytearray())
+        else_body = table.get("Nay")
+        if else_body is None:
+            else_body = table.get("_", bytearray())
+
+        res = bytearray()
+        res.extend(expr)
+
+        # JZ -> else
+        jz_pos = len(res)
+        res.append(0x81)
+        res.extend(b"\x00\x00\x00\x00")
+
+        res.extend(then_body)
+
+        # JMP -> end
+        jmp_pos = len(res)
+        res.append(0x80)
+        res.extend(b"\x00\x00\x00\x00")
+
+        else_pos = len(res)
+        res.extend(else_body)
+
+        end_pos = len(res)
+
+        jz_after = jz_pos + 5
+        res[jz_pos+1:jz_pos+5] = struct.pack("<i", else_pos - jz_after)
+
+        jmp_after = jmp_pos + 5
+        res[jmp_pos+1:jmp_pos+5] = struct.pack("<i", end_pos - jmp_after)
+        return res
+
     def cycle_stmt(self, items):
         # cycle expr ("limit" NUMBER)? "{" statements "}" "amen"
         expr = items[0]
@@ -1229,6 +1318,13 @@ class LogosToBytecode(Transformer):
             res.extend(struct.pack("<I", const_idx))
             return res
 
+        if name == "alloc":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xA3)  # ALLOC
+            return res
+
         # Standard call: args..., CALL <patched addr>
         res = bytearray()
         for a in args_list:
@@ -1279,10 +1375,38 @@ def indent_body(body):
     if not body: return indent("pass")
     return "\n".join([indent(str(stmt)) for stmt in body if stmt])
 
-def compile_and_run(filename, target="python"):
+def compile_and_run(filename, target="python", out_path: str | None = None):
     base_dir = os.path.dirname(__file__)
     lark_path = os.path.join(base_dir, "logos.lark")
     parser = Lark(open(lark_path).read(), parser='lalr', propagate_positions=True)
+
+    canon_path = os.path.normpath(os.path.join(base_dir, "..", "lib", "canon.lg"))
+
+    def _strip_import_lines(text: str) -> str:
+        return re.sub(r'^\s*import\s+"[^"]+"\s*;\s*\n?', '', text, flags=re.MULTILINE)
+
+    def _load_linked_libraries() -> str:
+        # synod places dependencies in LOGOS_LIB_PATH (default: ./lib)
+        lib_path = os.environ.get("LOGOS_LIB_PATH", os.path.join(os.getcwd(), "lib"))
+        lib_path = os.path.normpath(os.path.abspath(lib_path))
+        if not os.path.isdir(lib_path):
+            return ""
+
+        chunks: list[str] = []
+        for lib_name in sorted(os.listdir(lib_path)):
+            lib_dir = os.path.join(lib_path, lib_name)
+            if not os.path.isdir(lib_dir):
+                continue
+            entry = os.path.join(lib_dir, f"{lib_name}.lg")
+            if not os.path.isfile(entry):
+                continue
+            print(f"[Compiler] Linking library: {lib_name}")
+            try:
+                chunks.append(_strip_import_lines(open(entry, encoding="utf-8").read()))
+            except OSError as e:
+                raise Exception(f"Ontological Error: Failed reading library '{lib_name}': {e}")
+
+        return "\n\n".join(chunks)
 
     def _load_canon(entry_file: str) -> str:
         visited = set()
@@ -1315,8 +1439,18 @@ def compile_and_run(filename, target="python"):
         load_one(entry_file)
         return "\n\n".join(chunks)
 
-    canon_text = _load_canon(filename)
-    tree = parser.parse(canon_text)
+    user_text = _load_canon(filename)
+
+    try:
+        canon_code = _strip_import_lines(open(canon_path, encoding="utf-8").read())
+    except FileNotFoundError:
+        print(f"[!] Warning: The Canon was not found at {canon_path}. Compiling without blessings.")
+        canon_code = ""
+
+    libs_code = _load_linked_libraries()
+
+    full_source = (canon_code + "\n\n" + libs_code + "\n\n" + user_text).strip() + "\n"
+    tree = parser.parse(full_source)
     
     SynodValidator().visit(tree)
     print("[+] Commencing Diakrisis (Formal Verification)...")
@@ -1332,11 +1466,20 @@ def compile_and_run(filename, target="python"):
     elif target == "lbc":
         transformer = LogosToBytecode()
         lbc = transformer.transform(tree)
-        out_name = filename.replace(".lg", ".lbc")
+        out_name = out_path if out_path else filename.replace(".lg", ".lbc")
+        out_name = os.path.normpath(out_name)
+        out_dir = os.path.dirname(out_name)
+        if out_dir and not os.path.isdir(out_dir):
+            os.makedirs(out_dir, exist_ok=True)
         with open(out_name, "wb") as f:
             f.write(lbc)
         print(f"[+] Sanctification complete: {out_name}")
 
 if __name__ == "__main__":
-    target = sys.argv[2] if len(sys.argv) > 2 else "python"
-    compile_and_run(sys.argv[1], target)
+    parser = argparse.ArgumentParser(description="LOGOS compiler")
+    parser.add_argument("filename", help="Input .lg file")
+    parser.add_argument("target", nargs="?", default="python", choices=["python", "lbc"], help="Compilation target")
+    parser.add_argument("--out", dest="out", default=None, help="Output file path (only for lbc)")
+    args = parser.parse_args()
+
+    compile_and_run(args.filename, args.target, out_path=args.out)

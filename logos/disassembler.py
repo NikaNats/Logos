@@ -98,6 +98,8 @@ def disassemble(filename):
                 print(f"  {pc-1:04x}: PARTAKE")
             elif op == 0xA2:
                 print(f"  {pc-1:04x}: INSCRIBE")
+            elif op == 0xA3:
+                print(f"  {pc-1:04x}: ALLOC")
             elif op == 0xB0:
                 count = struct.unpack("<I", code[pc:pc+4])[0]
                 pc += 4
@@ -139,6 +141,21 @@ def disassemble(filename):
                 offset = struct.unpack("<i", code[pc:pc+4])[0]
                 pc += 4
                 print(f"  {pc-5:04x}: JZ {offset} (to {pc + offset:04x})")
+            elif op == 0x82:
+                count = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                cases = []
+                for _ in range(count):
+                    case_val = struct.unpack("<q", code[pc:pc+8])[0]
+                    pc += 8
+                    offset = struct.unpack("<i", code[pc:pc+4])[0]
+                    pc += 4
+                    cases.append((case_val, offset))
+                default_offset = struct.unpack("<i", code[pc:pc+4])[0]
+                pc += 4
+
+                table = ", ".join([f"{v}:{o}" for (v, o) in cases])
+                print(f"  {pc-(1+4+count*12+4):04x}: DISCERN {count} [{table}] default:{default_offset}")
             else: print(f"  {pc-1:04x}: UNKNOWN 0x{op:02x}")
 
 if __name__ == "__main__":
