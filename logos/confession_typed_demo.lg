@@ -1,0 +1,18 @@
+# Confession demo: typed repentance + inheritance + transgress
+
+structure Sin {
+  message: Text;
+} amen
+
+structure DivByZero : Sin {
+  numerator: HolyInt;
+} amen
+
+ministry main() -> Void {
+  try {
+    transgress new DivByZero { message = "Division by zero", numerator = 12 };
+  } repent e : Sin {
+    behold e.__type__;
+    behold e.message;
+  } amen
+} amen

@@ -1,0 +1,10 @@
+# Great Commission demo: calling a C math function via foreign service
+# Windows: msvcrt.dll provides cos(double) -> double
+
+foreign "msvcrt.dll" service cos(x: HolyFloat) -> HolyFloat;
+
+ministry main() -> Void {
+  gift x: HolyFloat = 0.0;
+  gift y: HolyFloat = cos(x);
+  behold y;
+} amen

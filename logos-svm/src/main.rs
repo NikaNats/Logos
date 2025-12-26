@@ -1,12 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Cursor, Write};
+use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod memory;
+use memory::{GcHeap, HeapData};
+
+mod ffi;
+use ffi::ForeignInterface;
 
 #[derive(Debug, Clone)]
 enum Data {
@@ -21,8 +26,8 @@ enum Data {
     Char(char),
     Byte(u8),
 
-    Congregation(Rc<RefCell<Vec<Value>>>),
-    Icon(Rc<RefCell<HashMap<String, Value>>>),
+    // Reference Types (Book of Life)
+    Reference(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +46,7 @@ impl std::fmt::Display for Value {
             Data::Boolean(b) => write!(f, "{}", if *b { "Verily" } else { "Nay" }),
             Data::Char(c) => write!(f, "'{}'", c),
             Data::Byte(b) => write!(f, "0x{:02X}", b),
-            Data::Congregation(v) => write!(f, "[List size: {}]", v.borrow().len()),
-            Data::Icon(_) => write!(f, "{Icon}"),
+            Data::Reference(idx) => write!(f, "{{Ref:{}}}", idx),
         }
     }
 }
@@ -54,6 +58,13 @@ impl Value {
 
     fn new_void() -> Self {
         Value { data: Data::Void, is_sacred: false }
+    }
+
+    fn as_ref_idx(&self) -> Option<usize> {
+        match self.data {
+            Data::Reference(idx) => Some(idx),
+            _ => None,
+        }
     }
 }
 
@@ -78,10 +89,24 @@ struct SVM {
     constants: Vec<Value>,
     pc: usize,
 
+    heap: GcHeap,
+
+    // Great Commission (FFI)
+    ffi: ForeignInterface,
+
+    // The Book of Genesis (System Intrinsics)
+    open_scrolls: HashMap<usize, File>,
+    next_fd: usize,
+
     // Debugger Fields (The Confessional)
     debug_mode: bool,
     breakpoints: HashSet<usize>,
     symbol_map: HashMap<usize, String>,
+
+    // The Inquisition (Source Mapping)
+    source_map: Vec<(usize, usize)>, // pc -> line
+    source_lines: Vec<String>,
+    source_path: Option<String>,
 }
 
 impl SVM {
@@ -94,10 +119,142 @@ impl SVM {
             constants,
             pc: 0,
 
+            heap: GcHeap::new(),
+
+            ffi: ForeignInterface::new(),
+
+            open_scrolls: HashMap::new(),
+            next_fd: 1000,
+
             debug_mode,
             breakpoints: HashSet::new(),
             symbol_map: HashMap::new(),
+
+            source_map: Vec::new(),
+            source_lines: Vec::new(),
+            source_path: None,
         }
+    }
+
+    fn load_debug_symbols(&mut self, lbc_filename: &str) {
+        let sym_path = format!("{}.sym", lbc_filename);
+        let Ok(sym_text) = std::fs::read_to_string(&sym_path) else {
+            return;
+        };
+
+        let mut src_from_sym: Option<String> = None;
+        let mut map: Vec<(usize, usize)> = Vec::new();
+
+        for raw in sym_text.lines() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("source=") {
+                let p = rest.trim();
+                if !p.is_empty() {
+                    src_from_sym = Some(p.to_string());
+                }
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(pc_s) = parts.next() else { continue; };
+            let Some(line_s) = parts.next() else { continue; };
+            let Ok(pc) = pc_s.parse::<usize>() else { continue; };
+            let Ok(ln) = line_s.parse::<usize>() else { continue; };
+            if ln == 0 {
+                continue;
+            }
+            map.push((pc, ln));
+        }
+
+        map.sort_by_key(|(pc, _)| *pc);
+        self.source_map = map;
+        self.source_path = src_from_sym.clone();
+
+        // Try to load the exact compiled source snapshot.
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(p) = src_from_sym {
+            candidates.push(p);
+        }
+        candidates.push(format!("{}.src.lg", lbc_filename));
+        if lbc_filename.ends_with(".lbc") {
+            candidates.push(lbc_filename.trim_end_matches(".lbc").to_string() + ".lg");
+        }
+
+        for p in candidates {
+            if Path::new(&p).is_file() {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    self.source_lines = text.lines().map(|s| s.to_string()).collect();
+                    self.source_path = Some(p);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn line_for_pc(&self, pc: usize) -> Option<usize> {
+        if self.source_map.is_empty() {
+            return None;
+        }
+        // Upper bound search for last entry with entry.pc <= pc.
+        let mut lo = 0usize;
+        let mut hi = self.source_map.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if self.source_map[mid].0 <= pc {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if lo == 0 {
+            return None;
+        }
+        Some(self.source_map[lo - 1].1)
+    }
+
+    fn print_source_context(&self) {
+        let Some(line_num) = self.line_for_pc(self.pc) else {
+            return;
+        };
+        if line_num == 0 {
+            return;
+        }
+        let idx = line_num - 1;
+        if idx < self.source_lines.len() {
+            let text = self.source_lines[idx].trim_end();
+            println!("\x1b[33mLine {}: {}\x1b[0m", line_num, text);
+        } else {
+            println!("\x1b[33mLine {}\x1b[0m", line_num);
+        }
+    }
+
+    fn check_gc(&mut self) {
+        if self.heap.bytes_allocated() > self.heap.threshold() {
+            self.trigger_apokatastasis();
+            if self.heap.bytes_allocated() > self.heap.threshold() {
+                self.heap.grow_threshold();
+            }
+        }
+    }
+
+    fn trigger_apokatastasis(&mut self) {
+        // Roots are: stack + all scoped values.
+        self.heap.unmark_all();
+
+        let mut roots: Vec<Value> = Vec::new();
+        roots.extend(self.stack.iter().cloned());
+        roots.extend(self.constants.iter().cloned());
+        for scope in &self.scopes {
+            for v in scope.values() {
+                roots.push(v.clone());
+            }
+        }
+
+        self.heap.mark_from_roots(&roots);
+        let _freed = self.heap.sweep();
     }
 
     fn peek_u32(&self, code: &[u8], idx: usize) -> u32 {
@@ -220,12 +377,43 @@ impl SVM {
             0xD1 => "EXIT_TRY".to_string(),
             0xD2 => "THROW".to_string(),
             0xE0 => "ABSOLVE".to_string(),
+            0xF0 => "SYS_OPEN".to_string(),
+            0xF1 => "SYS_WRITE".to_string(),
+            0xF2 => "SYS_READ".to_string(),
+            0xF3 => "SYS_CLOSE".to_string(),
+            0xF4 => "SYS_TIME".to_string(),
+            0xF5 => "SYS_ENV".to_string(),
+            0xFE => {
+                let mut idx = self.pc + 1;
+                if idx + 4 > code.len() {
+                    return "INVOKE_FOREIGN <truncated>".to_string();
+                }
+                let lib_len = self.peek_u32(code, idx) as usize;
+                idx += 4;
+                if idx + lib_len > code.len() {
+                    return "INVOKE_FOREIGN <truncated>".to_string();
+                }
+                let lib = String::from_utf8_lossy(&code[idx..idx + lib_len]).to_string();
+                idx += lib_len;
+
+                if idx + 4 > code.len() {
+                    return format!("INVOKE_FOREIGN {}::<truncated>", lib);
+                }
+                let fn_len = self.peek_u32(code, idx) as usize;
+                idx += 4;
+                if idx + fn_len > code.len() {
+                    return format!("INVOKE_FOREIGN {}::<truncated>", lib);
+                }
+                let func = String::from_utf8_lossy(&code[idx..idx + fn_len]).to_string();
+                format!("INVOKE_FOREIGN {}::{}", lib, func)
+            }
             _ => format!("UNKNOWN (0x{:02X})", op),
         }
     }
 
     fn enter_confessional(&mut self, code: &[u8]) {
         println!("\n=== THE CONFESSIONAL (Addr: 0x{:04X}) ===", self.pc);
+        self.print_source_context();
         println!("Next:  {}", self.disassemble_current(code));
 
         print!("Stack: [");
@@ -356,9 +544,53 @@ impl SVM {
         }
     }
 
-    fn throw(&mut self, message: String) {
+    fn genealogy_string(&self) -> String {
+        // Minimal, always-available trace. We keep it string-based so it can live
+        // inside Icon objects without introducing new runtime types.
+        let mut parts: Vec<String> = Vec::new();
+        parts.push(format!("pc={}", self.pc));
+        if !self.call_stack.is_empty() {
+            for (i, frame) in self.call_stack.iter().enumerate() {
+                parts.push(format!("frame#{} return_addr={}", i, frame.return_addr));
+            }
+        }
+        parts.join(" | ")
+    }
+
+    fn describe_sin(&self, sin: &Value) -> String {
+        match &sin.data {
+            Data::String(s) => s.clone(),
+            Data::Reference(idx) => match self.heap.get(*idx) {
+                Some(HeapData::Icon(map)) => {
+                    let t = match map.get("__type__") {
+                        Some(Value { data: Data::String(s), .. }) => Some(s.as_str()),
+                        _ => None,
+                    };
+                    if let Some(tn) = t {
+                        format!("{{Icon {} }}", tn)
+                    } else {
+                        "{Icon}".to_string()
+                    }
+                }
+                Some(HeapData::Congregation(vec)) => format!("[List size: {}]", vec.len()),
+                None => format!("{{Ref:{} (freed?)}}", idx),
+            },
+            _ => sin.to_string(),
+        }
+    }
+
+    fn throw_value(&mut self, mut sin: Value) {
         if let Some(handler) = self.exception_stack.pop() {
-            println!("[!] Error encountered: {}. Seeking Repentance...", message);
+            let summary = self.describe_sin(&sin);
+            println!("[!] Error encountered: {}. Seeking Repentance...", summary);
+
+            // Attach a genealogy trace to structured sins.
+            let genealogy = self.genealogy_string();
+            if let Data::Reference(idx) = sin.data {
+                if let Some(HeapData::Icon(map)) = self.heap.get_mut(idx) {
+                    map.insert("__genealogy__".to_string(), Value::new_string(genealogy));
+                }
+            }
 
             self.stack.truncate(handler.stack_depth);
             self.call_stack.truncate(handler.call_depth);
@@ -366,9 +598,51 @@ impl SVM {
             let target_scopes_len = handler.call_depth.saturating_add(1);
             self.scopes.truncate(target_scopes_len);
             self.pc = handler.catch_addr;
-            self.stack.push(Value::new_string(message));
+            self.stack.push(sin);
         } else {
-            panic!("Anathema: Uncaught Sin - {}", message);
+            panic!("Anathema: Uncaught Sin - {}", self.describe_sin(&sin));
+        }
+    }
+
+    fn throw(&mut self, message: String) {
+        self.throw_value(Value::new_string(message));
+    }
+
+    fn is_instance_of(&self, obj: &Value, typ: &str) -> bool {
+        match &obj.data {
+            Data::Int(_) => typ == "HolyInt",
+            Data::Float(_) => typ == "HolyFloat",
+            Data::String(_) => typ == "Text",
+            Data::Boolean(_) => typ == "Bool" || typ == "Boolean",
+            Data::Char(_) => typ == "Char",
+            Data::Byte(_) => typ == "Byte",
+            Data::Void => typ == "Void",
+            Data::Reference(idx) => match self.heap.get(*idx) {
+                Some(HeapData::Congregation(_)) => typ == "Congregation" || typ == "List",
+                Some(HeapData::Icon(map)) => {
+                    if typ == "Icon" {
+                        return true;
+                    }
+                    if let Some(Value { data: Data::String(tn), .. }) = map.get("__type__") {
+                        if tn == typ {
+                            return true;
+                        }
+                    }
+                    if let Some(Value { data: Data::Reference(bases_idx), .. }) = map.get("__bases__") {
+                        if let Some(HeapData::Congregation(vec)) = self.heap.get(*bases_idx) {
+                            for v in vec.iter() {
+                                if let Data::String(s) = &v.data {
+                                    if s == typ {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    false
+                }
+                None => false,
+            },
         }
     }
 
@@ -415,6 +689,11 @@ impl SVM {
                 }
                 0xD2 => { // THROW
                     if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0xD3 => { // IS_INSTANCE
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Bool");
                 }
                 0xE0 => { // ABSOLVE
                     cursor.read_u32::<LittleEndian>().unwrap();
@@ -475,8 +754,7 @@ impl SVM {
                         Data::Boolean(_) => "Boolean",
                         Data::Char(_) => "Char",
                         Data::Byte(_) => "Byte",
-                        Data::Congregation(_) => "Any",
-                        Data::Icon(_) => "Any",
+                        Data::Reference(_) => "Any",
                     });
                 }
                 0x11 => { // LOAD_ESS
@@ -570,21 +848,88 @@ impl SVM {
                     cursor.read_i32::<LittleEndian>().unwrap();
                     pc += 4;
                 }
+                0xF0 => { // SYS_OPEN
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Int");
+                }
+                0xF1 => { // SYS_WRITE
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Boolean");
+                }
+                0xF2 => { // SYS_READ
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("String");
+                }
+                0xF3 => { // SYS_CLOSE
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                }
+                0xF4 => { // SYS_TIME
+                    stack_types.push("Int");
+                }
+                0xF5 => { // SYS_ENV
+                    if stack_types.pop().is_none() { panic!("Verification Error: Stack Underflow at PC {}", pc-1); }
+                    stack_types.push("Any");
+                }
+                0xFE => { // INVOKE_FOREIGN
+                    // Payload: <u32 lib_len><bytes><u32 fn_len><bytes><u8 ret_tag><u8 argc><argc*u8 arg_tags>
+                    let lib_len = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    pc += 4;
+                    if pc + lib_len > code.len() {
+                        panic!("Verification Error: INVOKE_FOREIGN lib truncated at PC {}", pc - 5);
+                    }
+                    cursor.set_position((pc + lib_len) as u64);
+                    pc += lib_len;
+
+                    let fn_len = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    pc += 4;
+                    if pc + fn_len > code.len() {
+                        panic!("Verification Error: INVOKE_FOREIGN fn truncated at PC {}", pc - 5);
+                    }
+                    cursor.set_position((pc + fn_len) as u64);
+                    pc += fn_len;
+
+                    let ret_tag = cursor.read_u8().unwrap();
+                    pc += 1;
+                    let argc = cursor.read_u8().unwrap() as usize;
+                    pc += 1;
+
+                    if pc + argc > code.len() {
+                        panic!("Verification Error: INVOKE_FOREIGN arg tags truncated at PC {}", pc - 2);
+                    }
+                    cursor.set_position((pc + argc) as u64);
+                    pc += argc;
+
+                    for _ in 0..argc {
+                        if stack_types.pop().is_none() {
+                            panic!("Verification Error: Stack Underflow at PC {}", pc - 1);
+                        }
+                    }
+
+                    match ret_tag {
+                        0x00 => stack_types.push("Any"),
+                        0x01 => stack_types.push("Int"),
+                        0x02 => stack_types.push("Float"),
+                        _ => stack_types.push("Any"),
+                    }
+                }
                 _ => {}
             }
         }
         println!("[+] Ontological Verification successful.");
     }
 
-    fn execute(&mut self, code: Vec<u8>) {
-        self.verify(&code);
-        let mut cursor = Cursor::new(&code);
+    fn execute_slice(&mut self, code: &[u8], print_completion: bool) {
+        self.verify(code);
+        let mut cursor = Cursor::new(code);
         while self.pc < code.len() {
 
             // --- DEBUGGER HOOK ---
             if self.debug_mode || self.breakpoints.contains(&self.pc) {
                 self.debug_mode = true;
-                self.enter_confessional(&code);
+                self.enter_confessional(code);
             }
             // ---------------------
 
@@ -594,7 +939,9 @@ impl SVM {
 
             match opcode {
                 0x01 => { // HALT_AMEN
-                    println!("[+] Execution complete. Amen.");
+                    if print_completion {
+                        println!("[+] Execution complete. Amen.");
+                    }
                     return;
                 }
                 0x12 => { // GET_LOCAL <u32_offset>
@@ -687,13 +1034,32 @@ impl SVM {
                     self.exception_stack.pop();
                 }
                 0xD2 => { // THROW
-                    let msg_val = match self.pop_or_throw("THROW requires a message") {
+                    let sin_val = match self.pop_or_throw("THROW requires a value") {
                         Some(v) => v,
                         None => continue,
                     };
-                    let msg = msg_val.to_string();
-                    self.throw(msg);
+                    self.throw_value(sin_val);
                     continue;
+                }
+                0xD3 => { // IS_INSTANCE
+                    // Stack: [obj, typ] -> Bool
+                    let typ_val = match self.pop_or_throw("IS_INSTANCE requires a type") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let obj_val = match self.pop_or_throw("IS_INSTANCE requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let typ = match typ_val.data {
+                        Data::String(s) => s,
+                        _ => {
+                            self.throw("Ontological Error: IS_INSTANCE type must be Text".to_string());
+                            continue;
+                        }
+                    };
+                    let ok = self.is_instance_of(&obj_val, &typ);
+                    self.stack.push(Value { data: Data::Boolean(ok), is_sacred: false });
                 }
                 0xE0 => { // ABSOLVE <u32_name_idx>
                     let idx = cursor.read_u32::<LittleEndian>().unwrap();
@@ -721,10 +1087,9 @@ impl SVM {
                     }
                     items.reverse();
 
-                    self.stack.push(Value {
-                        data: Data::Congregation(Rc::new(RefCell::new(items))),
-                        is_sacred,
-                    });
+                    let idx = self.heap.alloc(HeapData::Congregation(items));
+                    self.check_gc();
+                    self.stack.push(Value { data: Data::Reference(idx), is_sacred });
                 }
                 0xA3 => { // ALLOC
                     let size_val = match self.pop_or_throw("ALLOC requires a size") {
@@ -739,44 +1104,87 @@ impl SVM {
                         }
                     };
                     let vec = vec![Value::new_void(); size];
-                    self.stack.push(Value {
-                        data: Data::Congregation(Rc::new(RefCell::new(vec))),
-                        is_sacred: false,
-                    });
+
+                    let idx = self.heap.alloc(HeapData::Congregation(vec));
+                    self.check_gc();
+                    self.stack.push(Value { data: Data::Reference(idx), is_sacred: false });
                 }
                 0xA1 => { // PARTAKE
-                    let index_val = self.stack.pop().expect("Stack Underflow");
-                    let array_val = self.stack.pop().expect("Stack Underflow");
-
-                    let index = match index_val.data {
-                        Data::Int(i) => i as usize,
-                        _ => panic!("Ontological Error: Index must be HolyInt"),
+                    let index_val = match self.pop_or_throw("PARTAKE requires an index") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let array_val = match self.pop_or_throw("PARTAKE requires a list") {
+                        Some(v) => v,
+                        None => continue,
                     };
 
-                    if let Data::Congregation(vec_rc) = array_val.data {
-                        let vec = vec_rc.borrow();
-                        if index >= vec.len() { panic!("Ontological Error: Index out of bounds"); }
-                        self.stack.push(vec[index].clone());
-                    } else {
-                        panic!("Ontological Error: PARTAKE requires a Congregation");
+                    let index = match index_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: Index must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    let Some(arr_idx) = array_val.as_ref_idx() else {
+                        self.throw("Ontological Error: PARTAKE requires a Congregation".to_string());
+                        continue;
+                    };
+
+                    match self.heap.get(arr_idx) {
+                        Some(HeapData::Congregation(vec)) => {
+                            if index >= vec.len() {
+                                self.throw("Ontological Error: Index out of bounds".to_string());
+                                continue;
+                            }
+                            self.stack.push(vec[index].clone());
+                        }
+                        _ => {
+                            self.throw("Ontological Error: PARTAKE requires a Congregation".to_string());
+                            continue;
+                        }
                     }
                 }
                 0xA2 => { // INSCRIBE
-                    let value = self.stack.pop().expect("Stack Underflow");
-                    let index_val = self.stack.pop().expect("Stack Underflow");
-                    let array_val = self.stack.pop().expect("Stack Underflow");
-
-                    let index = match index_val.data {
-                        Data::Int(i) => i as usize,
-                        _ => panic!("Ontological Error: Index must be HolyInt"),
+                    let value = match self.pop_or_throw("INSCRIBE requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let index_val = match self.pop_or_throw("INSCRIBE requires an index") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let array_val = match self.pop_or_throw("INSCRIBE requires a list") {
+                        Some(v) => v,
+                        None => continue,
                     };
 
-                    if let Data::Congregation(vec_rc) = array_val.data {
-                        let mut vec = vec_rc.borrow_mut();
-                        if index >= vec.len() { panic!("Ontological Error: Index out of bounds"); }
-                        vec[index] = value;
-                    } else {
-                        panic!("Ontological Error: INSCRIBE requires a Congregation");
+                    let index = match index_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: Index must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    let Some(arr_idx) = array_val.as_ref_idx() else {
+                        self.throw("Ontological Error: INSCRIBE requires a Congregation".to_string());
+                        continue;
+                    };
+
+                    match self.heap.get_mut(arr_idx) {
+                        Some(HeapData::Congregation(vec)) => {
+                            if index >= vec.len() {
+                                self.throw("Ontological Error: Index out of bounds".to_string());
+                                continue;
+                            }
+                            vec[index] = value;
+                        }
+                        _ => {
+                            self.throw("Ontological Error: INSCRIBE requires a Congregation".to_string());
+                            continue;
+                        }
                     }
                 }
                 0xB0 => { // MOLD <u32_count>
@@ -797,10 +1205,9 @@ impl SVM {
                         map.insert(key, val);
                     }
 
-                    self.stack.push(Value {
-                        data: Data::Icon(Rc::new(RefCell::new(map))),
-                        is_sacred,
-                    });
+                    let idx = self.heap.alloc(HeapData::Icon(map));
+                    self.check_gc();
+                    self.stack.push(Value { data: Data::Reference(idx), is_sacred });
                 }
                 0xB1 => { // REVEAL <u32_key_idx>
                     let idx = cursor.read_u32::<LittleEndian>().unwrap();
@@ -811,13 +1218,28 @@ impl SVM {
                         _ => panic!("Ontological Error: Symbol name must be a string"),
                     };
 
-                    let icon_val = self.stack.pop().expect("Stack Underflow");
-                    if let Data::Icon(map_rc) = icon_val.data {
-                        let map = map_rc.borrow();
-                        let val = map.get(&field_name).expect("Ontological Error: Unknown field");
-                        self.stack.push(val.clone());
-                    } else {
-                        panic!("Ontological Error: REVEAL requires an Icon");
+                    let icon_val = match self.pop_or_throw("REVEAL requires an icon") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    let Some(icon_idx) = icon_val.as_ref_idx() else {
+                        self.throw("Ontological Error: REVEAL requires an Icon".to_string());
+                        continue;
+                    };
+
+                    match self.heap.get(icon_idx) {
+                        Some(HeapData::Icon(map)) => {
+                            let Some(val) = map.get(&field_name) else {
+                                self.throw("Ontological Error: Unknown field".to_string());
+                                continue;
+                            };
+                            self.stack.push(val.clone());
+                        }
+                        _ => {
+                            self.throw("Ontological Error: REVEAL requires an Icon".to_string());
+                            continue;
+                        }
                     }
                 }
                 0xB2 => { // CONSECRATE <u32_key_idx>
@@ -829,14 +1251,28 @@ impl SVM {
                         _ => panic!("Ontological Error: Symbol name must be a string"),
                     };
 
-                    let value = self.stack.pop().expect("Stack Underflow");
-                    let icon_val = self.stack.pop().expect("Stack Underflow");
+                    let value = match self.pop_or_throw("CONSECRATE requires a value") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let icon_val = match self.pop_or_throw("CONSECRATE requires an icon") {
+                        Some(v) => v,
+                        None => continue,
+                    };
 
-                    if let Data::Icon(map_rc) = icon_val.data {
-                        let mut map = map_rc.borrow_mut();
-                        map.insert(field_name, value);
-                    } else {
-                        panic!("Ontological Error: CONSECRATE requires an Icon");
+                    let Some(icon_idx) = icon_val.as_ref_idx() else {
+                        self.throw("Ontological Error: CONSECRATE requires an Icon".to_string());
+                        continue;
+                    };
+
+                    match self.heap.get_mut(icon_idx) {
+                        Some(HeapData::Icon(map)) => {
+                            map.insert(field_name, value);
+                        }
+                        _ => {
+                            self.throw("Ontological Error: CONSECRATE requires an Icon".to_string());
+                            continue;
+                        }
                     }
                 }
                 0x10 => { // PUSH_ESS <u32_idx>
@@ -948,8 +1384,14 @@ impl SVM {
                     };
                     let len = match val.data {
                         Data::String(s) => s.chars().count(),
-                        Data::Congregation(v) => v.borrow().len(),
-                        Data::Icon(m) => m.borrow().len(),
+                        Data::Reference(idx) => match self.heap.get(idx) {
+                            Some(HeapData::Congregation(v)) => v.len(),
+                            Some(HeapData::Icon(m)) => m.len(),
+                            None => {
+                                self.throw("Ontological Error: Dangling reference.".to_string());
+                                continue;
+                            }
+                        },
                         _ => {
                             self.throw("Ontological Error: Cannot measure this essence.".to_string());
                             continue;
@@ -1146,6 +1588,205 @@ impl SVM {
                         continue;
                     }
                 }
+                0xF0 => { // SYS_OPEN (Stack: [path, mode] -> [fd])
+                    let mode_val = match self.pop_or_throw("SYS_OPEN requires a mode") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let path_val = match self.pop_or_throw("SYS_OPEN requires a path") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    let path = match path_val.data {
+                        Data::String(s) => s,
+                        _ => {
+                            self.throw("Ontological Error: Path must be Text".to_string());
+                            continue;
+                        }
+                    };
+                    let mode = match mode_val.data {
+                        Data::Int(i) => i,
+                        _ => {
+                            self.throw("Ontological Error: Mode must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    // Modes: 0=Read, 1=Write(Truncate), 2=Append
+                    let file_res = match mode {
+                        0 => File::open(&path),
+                        1 => File::create(&path),
+                        2 => OpenOptions::new().write(true).append(true).create(true).open(&path),
+                        _ => {
+                            self.throw("Heresy: Unknown Scroll Mode".to_string());
+                            continue;
+                        }
+                    };
+
+                    match file_res {
+                        Ok(f) => {
+                            let fd = self.next_fd;
+                            self.next_fd = self.next_fd.saturating_add(1);
+                            self.open_scrolls.insert(fd, f);
+                            self.stack.push(Value { data: Data::Int(fd as i64), is_sacred: false });
+                        }
+                        Err(_) => {
+                            // Return 0 to signify the scroll could not be opened.
+                            self.stack.push(Value { data: Data::Int(0), is_sacred: false });
+                        }
+                    }
+                }
+                0xF1 => { // SYS_WRITE (Stack: [fd, content] -> [bool])
+                    let content_val = match self.pop_or_throw("SYS_WRITE requires content") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let fd_val = match self.pop_or_throw("SYS_WRITE requires fd") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    let content = match content_val.data {
+                        Data::String(s) => s,
+                        _ => {
+                            self.throw("Ontological Error: Content must be Text".to_string());
+                            continue;
+                        }
+                    };
+                    let fd = match fd_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: FD must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    let success = if let Some(file) = self.open_scrolls.get_mut(&fd) {
+                        write!(file, "{}", content).is_ok()
+                    } else {
+                        false
+                    };
+                    self.stack.push(Value { data: Data::Boolean(success), is_sacred: false });
+                }
+                0xF2 => { // SYS_READ (Stack: [fd, bytes_to_read] -> [content])
+                    let count_val = match self.pop_or_throw("SYS_READ requires count") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let fd_val = match self.pop_or_throw("SYS_READ requires fd") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    let count = match count_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: Count must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+                    let fd = match fd_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: FD must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+
+                    if let Some(file) = self.open_scrolls.get_mut(&fd) {
+                        let mut buffer = vec![0u8; count];
+                        match file.read(&mut buffer) {
+                            Ok(n) => {
+                                buffer.truncate(n);
+                                let s = String::from_utf8_lossy(&buffer).to_string();
+                                self.stack.push(Value { data: Data::String(s), is_sacred: false });
+                            }
+                            Err(_) => {
+                                self.stack.push(Value { data: Data::String("".to_string()), is_sacred: false });
+                            }
+                        }
+                    } else {
+                        self.stack.push(Value { data: Data::String("".to_string()), is_sacred: false });
+                    }
+                }
+                0xF3 => { // SYS_CLOSE (Stack: [fd] -> [])
+                    let fd_val = match self.pop_or_throw("SYS_CLOSE requires fd") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let fd = match fd_val.data {
+                        Data::Int(i) if i >= 0 => i as usize,
+                        _ => {
+                            self.throw("Ontological Error: FD must be HolyInt".to_string());
+                            continue;
+                        }
+                    };
+                    self.open_scrolls.remove(&fd);
+                }
+                0xF4 => { // SYS_TIME (Stack: [] -> [timestamp_ms])
+                    let start = SystemTime::now();
+                    let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap_or_default();
+                    let ms = since_the_epoch.as_millis() as i64;
+                    self.stack.push(Value { data: Data::Int(ms), is_sacred: false });
+                }
+                0xF5 => { // SYS_ENV (Stack: [key] -> [value|Void])
+                    let key_val = match self.pop_or_throw("SYS_ENV requires a key") {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let key = match key_val.data {
+                        Data::String(s) => s,
+                        _ => {
+                            self.throw("Ontological Error: Env Key must be Text".to_string());
+                            continue;
+                        }
+                    };
+
+                    match env::var(key) {
+                        Ok(val) => self.stack.push(Value { data: Data::String(val), is_sacred: false }),
+                        Err(_) => self.stack.push(Value { data: Data::Void, is_sacred: false }),
+                    }
+                }
+                0xFE => { // INVOKE_FOREIGN
+                    let lib_len = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    self.pc += 4;
+                    let mut lib_buf = vec![0u8; lib_len];
+                    cursor.read_exact(&mut lib_buf).unwrap();
+                    self.pc += lib_len;
+                    let lib_name = String::from_utf8_lossy(&lib_buf).to_string();
+
+                    let fn_len = cursor.read_u32::<LittleEndian>().unwrap() as usize;
+                    self.pc += 4;
+                    let mut fn_buf = vec![0u8; fn_len];
+                    cursor.read_exact(&mut fn_buf).unwrap();
+                    self.pc += fn_len;
+                    let func_name = String::from_utf8_lossy(&fn_buf).to_string();
+
+                    let ret_tag = cursor.read_u8().unwrap();
+                    self.pc += 1;
+                    let argc = cursor.read_u8().unwrap() as usize;
+                    self.pc += 1;
+
+                    let mut arg_tags = vec![0u8; argc];
+                    cursor.read_exact(&mut arg_tags).unwrap();
+                    self.pc += argc;
+
+                    let mut args: Vec<Value> = Vec::with_capacity(argc);
+                    for _ in 0..argc {
+                        let v = match self.pop_or_throw("INVOKE_FOREIGN requires arguments") {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                        args.push(v);
+                    }
+                    args.reverse();
+
+                    let res = self
+                        .ffi
+                        .call_typed(&lib_name, &func_name, ret_tag, &arg_tags, args);
+                    self.stack.push(res);
+                }
                 _ => {
                     self.throw(format!("Ontological Error: Unknown Spirit 0x{:02X}", opcode));
                     continue;
@@ -1153,18 +1794,139 @@ impl SVM {
             }
         }
     }
+
+    fn execute(&mut self, code: Vec<u8>) {
+        self.execute_slice(&code, true);
+    }
+
+    fn execute_fragment(&mut self, mut fragment: Vec<u8>) {
+        // Ensure the fragment terminates cleanly.
+        fragment.push(0x01); // HALT
+        self.pc = 0;
+        self.execute_slice(&fragment, false);
+        self.pc = 0;
+    }
+
+    fn print_status(&self) {
+        if let Some(val) = self.stack.last() {
+            println!("=> {}", val);
+        } else {
+            println!("=> (Void)");
+        }
+        io::stdout().flush().unwrap();
+    }
+
+    fn ingest_constant(&mut self, payload: &[u8]) {
+        let mut cursor = Cursor::new(payload);
+        let tag = match cursor.read_u8() {
+            Ok(t) => t,
+            Err(_) => {
+                eprintln!("Heresy: empty constant payload");
+                return;
+            }
+        };
+
+        let val = match tag {
+            0x01 => {
+                let v = cursor.read_i64::<LittleEndian>().unwrap();
+                Value { data: Data::Int(v), is_sacred: false }
+            }
+            0x02 => {
+                let len = cursor.read_u32::<LittleEndian>().unwrap();
+                let mut buf = vec![0u8; len as usize];
+                cursor.read_exact(&mut buf).unwrap();
+                Value { data: Data::String(String::from_utf8(buf).unwrap()), is_sacred: false }
+            }
+            0x03 => {
+                let v = cursor.read_f64::<LittleEndian>().unwrap();
+                Value { data: Data::Float(v), is_sacred: false }
+            }
+            0x04 => {
+                let b = cursor.read_u8().unwrap();
+                Value { data: Data::Boolean(b != 0), is_sacred: false }
+            }
+            0x05 => {
+                let cp = cursor.read_u32::<LittleEndian>().unwrap();
+                let ch = std::char::from_u32(cp).unwrap_or('\u{FFFD}');
+                Value { data: Data::Char(ch), is_sacred: false }
+            }
+            0x06 => {
+                let b = cursor.read_u8().unwrap();
+                Value { data: Data::Byte(b), is_sacred: false }
+            }
+            _ => {
+                eprintln!("Heresy: Invalid constant tag 0x{:02X}", tag);
+                return;
+            }
+        };
+
+        self.constants.push(val);
+    }
+
+    fn run_repl(&mut self) {
+        let mut stdin = io::stdin();
+        println!("[SVM] Ready for catechism...");
+        io::stdout().flush().unwrap();
+
+        loop {
+            let mut type_buf = [0u8; 1];
+            if stdin.read_exact(&mut type_buf).is_err() {
+                break;
+            }
+            let p_type = type_buf[0];
+
+            let mut len_buf = [0u8; 4];
+            if stdin.read_exact(&mut len_buf).is_err() {
+                break;
+            }
+            let len = u32::from_le_bytes(len_buf) as usize;
+
+            let mut payload = vec![0u8; len];
+            if len > 0 && stdin.read_exact(&mut payload).is_err() {
+                break;
+            }
+
+            match p_type {
+                0x01 => self.ingest_constant(&payload),
+                0x02 => {
+                    self.execute_fragment(payload);
+                    self.print_status();
+                }
+                0x03 => break, // Amen
+                _ => eprintln!("Heresy: Unknown packet type 0x{:02X}", p_type),
+            }
+        }
+    }
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: logos-svm <file.lbc> [--debug]");
+    let mut debug_mode = false;
+    let mut repl_mode = false;
+    let mut filename: Option<String> = None;
+
+    for a in args.iter().skip(1) {
+        if a == "--debug" {
+            debug_mode = true;
+        } else if a == "--repl" {
+            repl_mode = true;
+        } else if filename.is_none() {
+            filename = Some(a.clone());
+        }
+    }
+
+    if repl_mode {
+        let mut svm = SVM::new(Vec::new(), debug_mode);
+        svm.run_repl();
         return;
     }
 
-    let debug_mode = args.len() > 2 && args[2] == "--debug";
+    let Some(filename) = filename else {
+        println!("Usage: logos-svm <file.lbc> [--debug] | logos-svm --repl [--debug]");
+        return;
+    };
 
-    let mut file = File::open(&args[1]).expect("Could not open file");
+    let mut file = File::open(&filename).expect("Could not open file");
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).expect("Could not read file");
 
@@ -1228,5 +1990,8 @@ fn main() {
     cursor.read_exact(&mut code).unwrap();
 
     let mut svm = SVM::new(constants, debug_mode);
+    if debug_mode {
+        svm.load_debug_symbols(&filename);
+    }
     svm.execute(code);
 }

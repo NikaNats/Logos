@@ -54,6 +54,28 @@ def disassemble(filename):
             op = code[pc]
             pc += 1
             if op == 0x01: print(f"  {pc-1:04x}: HALT_AMEN")
+            elif op == 0xFE:
+                lib_len = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                lib = code[pc:pc+lib_len].decode("utf-8", errors="replace")
+                pc += lib_len
+
+                fn_len = struct.unpack("<I", code[pc:pc+4])[0]
+                pc += 4
+                fn = code[pc:pc+fn_len].decode("utf-8", errors="replace")
+                pc += fn_len
+
+                ret_tag = code[pc]
+                pc += 1
+                argc = code[pc]
+                pc += 1
+                arg_tags = list(code[pc:pc+argc])
+                pc += argc
+
+                type_name = {0: "Void", 1: "HolyInt", 2: "HolyFloat"}
+                ret_name = type_name.get(ret_tag, f"Unknown({ret_tag})")
+                args_name = ",".join(type_name.get(t, f"?{t}") for t in arg_tags)
+                print(f"  {pc-(1+4+lib_len+4+fn_len+1+1+argc):04x}: INVOKE_FOREIGN {lib}::{fn} ({args_name}) -> {ret_name}")
             elif op == 0x12:
                 off = struct.unpack("<I", code[pc:pc+4])[0]
                 pc += 4
@@ -74,6 +96,8 @@ def disassemble(filename):
                 print(f"  {pc-1:04x}: EXIT_TRY")
             elif op == 0xD2:
                 print(f"  {pc-1:04x}: THROW")
+            elif op == 0xD3:
+                print(f"  {pc-1:04x}: IS_INSTANCE")
             elif op == 0xE0:
                 idx = struct.unpack("<I", code[pc:pc+4])[0]
                 pc += 4
@@ -156,6 +180,18 @@ def disassemble(filename):
 
                 table = ", ".join([f"{v}:{o}" for (v, o) in cases])
                 print(f"  {pc-(1+4+count*12+4):04x}: DISCERN {count} [{table}] default:{default_offset}")
+            elif op == 0xF0:
+                print(f"  {pc-1:04x}: SYS_OPEN")
+            elif op == 0xF1:
+                print(f"  {pc-1:04x}: SYS_WRITE")
+            elif op == 0xF2:
+                print(f"  {pc-1:04x}: SYS_READ")
+            elif op == 0xF3:
+                print(f"  {pc-1:04x}: SYS_CLOSE")
+            elif op == 0xF4:
+                print(f"  {pc-1:04x}: SYS_TIME")
+            elif op == 0xF5:
+                print(f"  {pc-1:04x}: SYS_ENV")
             else: print(f"  {pc-1:04x}: UNKNOWN 0x{op:02x}")
 
 if __name__ == "__main__":

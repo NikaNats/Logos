@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LOGOS",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.logos",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.documentation.logos",
+          "begin": "///",
+          "end": "$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.logos",
+          "match": "\\b(service|ministry|essence|gift|cycle|inspect|case|amen|return|offer|behold|listen|fast|struct|try|repent|import)\\b"
+        },
+        {
+          "name": "keyword.operator.new.logos",
+          "match": "\\b(new)\\b"
+        },
+        {
+          "name": "constant.language.boolean.logos",
+          "match": "\\b(Verily|Nay)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.logos",
+          "match": "\\b(HolyInt|Text|Void|Bool|Byte|Char)\\b"
+        },
+        {
+          "name": "storage.type.user.logos",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.logos",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.logos",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.logos",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.logos",
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\()"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.logos"
+}

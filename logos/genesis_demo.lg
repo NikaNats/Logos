@@ -1,0 +1,21 @@
+import "../lib/genesis.lg";
+
+service main() {
+    behold "--- Genesis Demo ---";
+
+    gift user : Text = get_env("USER", "Unknown Monk");
+    behold ("Scribe: " + user);
+
+    gift start_time : HolyInt = now();
+
+    gift log : Scroll = open_scroll("genesis_demo.log", 1);
+
+    gift ok : Bool = write_line(log, "Matins service performed by " + user);
+    behold "Write success:";
+    behold ok;
+    close_scroll(log);
+
+    gift duration : HolyInt = since(start_time);
+    behold "Service duration (ms):";
+    behold duration;
+} amen

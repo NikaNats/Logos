@@ -7,6 +7,7 @@ statements: statement*
 statement: service_def
          | ministry_def
          | intercessor_def
+         | foreign_def
          | import_stmt
          | struct_def
          | type_def
@@ -14,6 +15,7 @@ statement: service_def
          | gift_decl
          | assign_stmt
          | absolve_stmt
+         | transgress_stmt
          | try_repent_stmt
          | inspect_stmt
          | cycle_stmt
@@ -34,6 +36,11 @@ service_def: "service" NAME "(" params? ")" ("->" NAME)? "{" statements "}" "ame
 ministry_def: "ministry" NAME "(" params? ")" ("->" NAME)? "{" statements "}" "amen"
 intercessor_def: "intercessor" NAME "(" params? ")" ("->" NAME)? "{" statements "}" "amen"
 
+// --- The Great Commission (Foreign Services / FFI) ---
+// Declares an external service provided by a shared library.
+// Example: foreign "m" service cos(val: HolyFloat) -> HolyFloat;
+foreign_def: "foreign" STRING "service" NAME "(" params? ")" "->" NAME ";"
+
 // --- Ontological Definitions ---
 type_def: "type" NAME "=" "essence" "{" constraint+ "}" "amen"
 constraint: "not" constraint_expr ";"
@@ -45,7 +52,7 @@ implied_bin_op: OPERATOR expr
 
 // --- Iconography of Data ---
 // Structure Definitions (The Archetypes)
-struct_def: "structure" NAME "{" field_decl+ "}" "amen"
+struct_def: "structure" NAME (":" NAME)? "{" field_decl+ "}" "amen"
 field_decl: NAME ":" NAME ";"
 
 essence_decl: "essence" NAME ":" NAME "=" expr ";"
@@ -60,7 +67,9 @@ index_assignable: NAME "[" expr "]"
 member_assignable: NAME "." NAME
 
 // --- Ascetic Control Flow ---
-try_repent_stmt: "try" "{" statements "}" "repent" NAME "{" statements "}" "amen"
+transgress_stmt: "transgress" expr ";"
+
+try_repent_stmt: "try" "{" statements "}" "repent" NAME (":" NAME)? "{" statements "}" "amen"
 
 // Discernment / Switch (simple form)
 // NOTE: Each case body is exactly ONE statement to keep parsing unambiguous.

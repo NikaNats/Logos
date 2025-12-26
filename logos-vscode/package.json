@@ -1,0 +1,51 @@
+{
+  "name": "logos-iconostasis",
+  "displayName": "LOGOS Iconostasis",
+  "description": "Syntax highlighting and diagnostics (LSP) for LOGOS (.lg).",
+  "version": "0.0.1",
+  "publisher": "trinity",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:logos"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "logos",
+        "aliases": [
+          "LOGOS",
+          "logos"
+        ],
+        "extensions": [
+          ".lg"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "logos",
+        "scopeName": "source.logos",
+        "path": "./syntaxes/logos.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

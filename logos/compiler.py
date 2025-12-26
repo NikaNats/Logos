@@ -3,7 +3,7 @@ import argparse
 import keyword
 import z3
 import re
-from lark import Lark, Transformer, Token, Tree
+from lark import Lark, Transformer, Token, Tree, v_args
 from lark.visitors import Interpreter
 
 
@@ -108,9 +108,13 @@ class SynodValidator(Interpreter):
 
     def try_repent_stmt(self, tree):
         self.in_try_block += 1
+        # Grammar supports optional typed repentance:
+        #   try { ... } repent err (: Type)? { ... } amen
+        # Children are: [try_statements, err_name, (type_name)?, repent_statements]
+        # Always visit the try body and the final repent body.
         self.visit(tree.children[0])
         self.in_try_block -= 1
-        self.visit(tree.children[2])
+        self.visit(tree.children[-1])
 
     def _register(self, name, line, is_essence):
         if name in self.registry: raise Exception(f"Duplicity Error: '{name}' reused at line {line}.")
@@ -127,6 +131,41 @@ class DiakrisisEngine(Interpreter):
         self.symbols = {}
         self.symbol_types = {}
         self.custom_types = {}
+        # Great Commission: foreign services (name -> {lib, arg_types, return_type})
+        self.foreign_services: dict[str, dict] = {}
+
+    def foreign_def(self, tree):
+        # foreign_def: "foreign" STRING "service" NAME "(" params? ")" "->" NAME ";"
+        # Children: [STRING, NAME, (params)?, NAME]
+        if not tree.children or len(tree.children) < 3:
+            return
+
+        lib_tok = tree.children[0]
+        fn_tok = tree.children[1]
+
+        # params may be absent
+        ret_tok = tree.children[-1]
+        params_node = tree.children[2] if len(tree.children) > 3 else None
+
+        lib_name = str(lib_tok)[1:-1] if isinstance(lib_tok, Token) else str(lib_tok)
+        fn_name = str(fn_tok)
+        ret_type = str(ret_tok)
+
+        arg_types: list[str] = []
+        if isinstance(params_node, Tree) and params_node.data == "params":
+            for p in params_node.children:
+                # param: NAME (":" NAME)?
+                if isinstance(p, Tree) and p.data == "param":
+                    if len(p.children) >= 2:
+                        arg_types.append(str(p.children[1]))
+                    else:
+                        arg_types.append("Any")
+
+        self.foreign_services[fn_name] = {
+            "lib": lib_name,
+            "arg_types": arg_types,
+            "return_type": ret_type,
+        }
 
     def type_def(self, tree):
         # type_def: "type" NAME "=" "essence" "{" constraint+ "}" "amen"
@@ -320,6 +359,8 @@ class DiakrisisEngine(Interpreter):
                     return "Text"
                 if fn == "alloc":
                     return "Synod"
+                if fn in self.foreign_services:
+                    return str(self.foreign_services[fn].get("return_type"))
                 return None
             if node.data == "bin_op":
                 left, op_token, right = node.children[0], str(node.children[1]), node.children[2]
@@ -378,12 +419,106 @@ class LogosToPython(Transformer):
         # Avoid generating invalid Python (e.g., async def not(...):)
         return f"{name}_" if keyword.iskeyword(name) else name
 
+    def __init__(self):
+        super().__init__()
+        # structure Name (: Base)? ...  -> record inheritance for runtime metadata
+        self.struct_bases: dict[str, str | None] = {}
+
+    def _ancestors_for(self, type_name: str) -> list[str]:
+        # Returns linearized bases: [direct_base, base_of_base, ...]
+        ancestors: list[str] = []
+        seen: set[str] = set()
+        cur = self.struct_bases.get(type_name)
+        while cur is not None and cur not in seen:
+            ancestors.append(cur)
+            seen.add(cur)
+            cur = self.struct_bases.get(cur)
+        return ancestors
+
     def statements(self, items): return items
 
     def start(self, items):
         philokalia = [
             "import asyncio, time",
             "class OntologicalError(Exception): pass",
+            "class LogosSin(Exception):",
+            "    def __init__(self, obj):",
+            "        super().__init__(str(obj))",
+            "        self.obj = obj",
+            "def measure(val):",
+            "    if val is None: raise OntologicalError('Cannot measure this essence.')",
+            "    if isinstance(val, (str, list, dict, tuple)): return len(val)",
+            "    raise OntologicalError('Cannot measure this essence.')",
+            "__logos_open_scrolls = {}",
+            "__logos_next_fd = 1000",
+            "def __sys_open(path, mode):",
+            "    global __logos_next_fd",
+            "    try:",
+            "        m = int(mode)",
+            "        p = str(path)",
+            "        if m == 0:",
+            "            f = open(p, 'r', encoding='utf-8')",
+            "        elif m == 1:",
+            "            f = open(p, 'w', encoding='utf-8')",
+            "        elif m == 2:",
+            "            f = open(p, 'a', encoding='utf-8')",
+            "        else:",
+            "            raise OntologicalError('Heresy: Unknown Scroll Mode')",
+            "        fd = __logos_next_fd",
+            "        __logos_next_fd += 1",
+            "        __logos_open_scrolls[fd] = f",
+            "        return fd",
+            "    except Exception:",
+            "        return 0",
+            "def __sys_write(fd, content):",
+            "    f = __logos_open_scrolls.get(int(fd))",
+            "    if f is None: return False",
+            "    try:",
+            "        f.write(str(content))",
+            "        f.flush()",
+            "        return True",
+            "    except Exception:",
+            "        return False",
+            "def __sys_read(fd, count):",
+            "    f = __logos_open_scrolls.get(int(fd))",
+            "    if f is None: return ''",
+            "    try:",
+            "        return f.read(int(count))",
+            "    except Exception:",
+            "        return ''",
+            "def __sys_close(fd):",
+            "    f = __logos_open_scrolls.pop(int(fd), None)",
+            "    try:",
+            "        if f is not None: f.close()",
+            "    except Exception:",
+            "        pass",
+            "def __sys_time():",
+            "    return int(time.time() * 1000)",
+            "def __sys_env(key):",
+            "    import os",
+            "    return os.environ.get(str(key))",
+            "def passage(s, start, length):",
+            "    if not isinstance(s, str): raise OntologicalError('Only Text can be divided into Passages.')",
+            "    return s[int(start):int(start)+int(length)]",
+            "def _logos_get_field(obj, name):",
+            "    if isinstance(obj, dict):",
+            "        return obj.get(name)",
+            "    return getattr(obj, name)",
+            "def _logos_set_field(obj, name, value):",
+            "    if isinstance(obj, dict):",
+            "        obj[name] = value",
+            "        return value",
+            "    setattr(obj, name, value)",
+            "    return value",
+            "def _logos_is_instance(obj, typ):",
+            "    try:",
+            "        if isinstance(obj, dict):",
+            "            if obj.get('__type__') == typ: return True",
+            "            bases = obj.get('__bases__') or []",
+            "            return typ in bases",
+            "        return False",
+            "    except Exception:",
+            "        return False",
             "class AsyncRLock:",
             "    def __init__(self):",
             "        self._lock = asyncio.Lock()",
@@ -443,13 +578,25 @@ class LogosToPython(Transformer):
     def intercessor_def(self, items): return self.service_def(items)
 
     def struct_def(self, items):
-        return ""  # Archetypes are ignored in Python backend for now
+        # structure NAME (":" NAME)? "{" field_decl+ "}" "amen"
+        name = str(items[0])
+        base = None
+        # NOTE: field_decl returns None to avoid being mistaken for a base.
+        if len(items) > 1 and isinstance(items[1], str) and items[1]:
+            base = str(items[1])
+        self.struct_bases[name] = base
+        return ""  # Archetypes are runtime dict metadata only in Python backend
 
     def import_stmt(self, items):
         return ""  # Static linking handled by loader
 
-    def field_decl(self, items):
+    def foreign_def(self, items):
+        # Foreign services are resolved by the Rust SVM runtime.
         return ""
+
+    def field_decl(self, items):
+        # Not used by Python backend; return None so struct_def can reliably detect inheritance.
+        return None
 
     def params(self, items):
         return LogosToPython._PyParams(", ".join(map(str, items)))
@@ -483,6 +630,9 @@ class LogosToPython(Transformer):
     def assign_stmt(self, items):
         target = items[0]
         expr = items[1]
+        if isinstance(target, tuple) and target and target[0] == "MEMBER_LVALUE":
+            _, obj_name, field_name = target
+            return f"_logos_set_field({obj_name}, {field_name!r}, {expr})"
         return f"{target} = {expr}"
 
     def cycle_stmt(self, items):
@@ -536,10 +686,36 @@ class LogosToPython(Transformer):
         return self.kairos_stmt(items)
 
     def try_repent_stmt(self, items):
-        try_body, error_name, repent_body = items[0], items[1], items[2]
-        return f"try:\n{indent_body(try_body)}\nexcept Exception as {error_name}:\n{indent_body(repent_body)}"
+        # try { ... } repent err (: Type)? { ... } amen
+        try_body = items[0]
+        error_name = str(items[1])
+        if len(items) == 3:
+            repent_body = items[2]
+            return (
+                f"try:\n{indent_body(try_body)}\n"
+                f"except Exception as __logos_e:\n"
+                f"    {error_name} = __logos_e.obj if isinstance(__logos_e, LogosSin) else __logos_e\n"
+                f"{indent_body(repent_body)}"
+            )
+
+        typ = str(items[2])
+        repent_body = items[3]
+        return (
+            f"try:\n{indent_body(try_body)}\n"
+            f"except Exception as __logos_e:\n"
+            f"    {error_name} = __logos_e.obj if isinstance(__logos_e, LogosSin) else __logos_e\n"
+            f"    if not _logos_is_instance({error_name}, {typ!r}):\n"
+            f"        raise\n"
+            f"{indent_body(repent_body)}"
+        )
+
+    def transgress_stmt(self, items):
+        # transgress expr; -> raise LogosSin(expr)
+        return f"raise LogosSin({items[0]})"
 
     def case_label(self, items):
+        if not items:
+            return "_"
         return str(items[0])
 
     def inspect_case(self, items):
@@ -598,12 +774,33 @@ class LogosToPython(Transformer):
         args = items[1] if len(items) > 1 else ""
         if name == "alloc":
             return f"([None] * int({args}))"
-        return f"{name}({args})"
+
+        # Most LOGOS calls are to async services/ministry definitions.
+        # Intrinsics and helpers remain synchronous.
+        sync_calls = {
+            "measure",
+            "passage",
+            "create_synod",
+            "sanctify",
+            "__sys_open",
+            "__sys_write",
+            "__sys_read",
+            "__sys_close",
+            "__sys_time",
+            "__sys_env",
+            "_logos_get_field",
+            "_logos_set_field",
+            "_logos_is_instance",
+        }
+
+        if name in sync_calls:
+            return f"{name}({args})"
+        return f"await {name}({args})"
 
     def dot_access(self, items):
         # dot_access: atom "." NAME call_suffix?
         if len(items) == 2:
-            return f"{items[0]}.{items[1]}"
+            return f"_logos_get_field({items[0]}, {str(items[1])!r})"
         return f"{items[0]}.{items[1]}({items[2]})"
     def witness_expr(self, items):
         expr, typ = items[0], str(items[1])
@@ -641,10 +838,18 @@ class LogosToPython(Transformer):
         return f"[{items[0]}]"
 
     def struct_literal(self, items):
-        # new Name { field_inits }
-        # Represent as dict for python backend.
+        # struct_literal: "new" NAME "{" field_inits? "}"
+        type_name = str(items[0])
         fields = items[1] if len(items) > 1 else []
-        kv = ", ".join([f"{k}: {v}" for (k, v) in fields])
+
+        # Embed minimal runtime type info for Confession/typed repentance.
+        bases = self._ancestors_for(type_name)
+        meta = [
+            f"{repr('__type__')}: {type_name!r}",
+            f"{repr('__bases__')}: {bases!r}",
+        ]
+        user_fields = [f"{k}: {v}" for (k, v) in fields]
+        kv = ", ".join(meta + user_fields)
         return f"{{{kv}}}"
 
     def field_inits(self, items):
@@ -657,7 +862,8 @@ class LogosToPython(Transformer):
         return f"{items[0]}[{items[1]}]"
 
     def member_assignable(self, items):
-        return f"{items[0]}.{items[1]}"
+        # member_assignable: NAME "." NAME
+        return ("MEMBER_LVALUE", str(items[0]), str(items[1]))
 
     def index_assignable(self, items):
         return f"{items[0]}[{items[1]}]"
@@ -668,9 +874,55 @@ class LogosToPython(Transformer):
     def STRING(self, t): return str(t)
 
 class LogosToBytecode(Transformer):
+    class CodeChunk:
+        __slots__ = ("code", "stmt_map")
+
+        def __init__(self, code: bytearray | None = None, stmt_map: list[tuple[int, int]] | None = None):
+            self.code = code if code is not None else bytearray()
+            self.stmt_map = stmt_map if stmt_map is not None else []
+
     def __init__(self):
         self.constants = []
         self.function_bodies = {}  # name -> raw bytearray body (may contain CALL markers)
+        # Per-function statement map (raw offsets -> line): [(pc, line), ...]
+        self.function_stmt_maps: dict[str, list[tuple[int, int]]] = {}
+        # Global statement map (final cleaned offsets -> line) for last transform.
+        self.last_global_stmt_map: list[tuple[int, int]] = []
+        # Optional path to the exact compiled source snapshot used for line display.
+        self.last_source_path: str | None = None
+        # Great Commission: foreign service registry
+        # name -> {lib: str, arg_types: [str], return_type: str}
+        self.foreign_registry: dict[str, dict] = {}
+        # structure Name (: Base)? ...  -> record inheritance for runtime metadata
+        self.struct_bases: dict[str, str | None] = {}
+
+    @staticmethod
+    def _ffi_type_tag(type_name: str, context: str) -> int:
+        t = str(type_name)
+        if t == "HolyInt":
+            return 0x01
+        if t == "HolyFloat":
+            return 0x02
+        if t == "Void" and context == "return":
+            return 0x00
+        raise Exception(f"Ontological Error: FFI supports only HolyInt/HolyFloat (and Void return). Got '{t}'")
+
+    def _as_chunk(self, item) -> "LogosToBytecode.CodeChunk":
+        if isinstance(item, LogosToBytecode.CodeChunk):
+            return item
+        if isinstance(item, (bytearray, bytes)):
+            return LogosToBytecode.CodeChunk(bytearray(item), [])
+        return LogosToBytecode.CodeChunk(bytearray(), [])
+
+    def _ancestors_for(self, type_name: str) -> list[str]:
+        ancestors: list[str] = []
+        seen: set[str] = set()
+        cur = self.struct_bases.get(type_name)
+        while cur is not None and cur not in seen:
+            ancestors.append(cur)
+            seen.add(cur)
+            cur = self.struct_bases.get(cur)
+        return ancestors
 
     # --- Constants ---
 
@@ -775,6 +1027,7 @@ class LogosToBytecode(Transformer):
             current_addr += self._calculate_cleaned_length(self.function_bodies[name])
 
         # Build final code with patched calls (second pass)
+        self.last_global_stmt_map = []
         code = bytearray()
         if has_main:
             code.append(0x90)
@@ -784,19 +1037,70 @@ class LogosToBytecode(Transformer):
             code.append(0x01)
 
         for name in func_order:
-            cleaned = self._clean_and_patch(self.function_bodies[name], symbol_table)
+            body = self.function_bodies[name]
+            stmt_map = self.function_stmt_maps.get(name, [])
+            cleaned, cleaned_map = self._clean_and_patch_with_map(body, symbol_table, stmt_map)
+
+            fn_base = len(code)
+            for off, line in cleaned_map:
+                self.last_global_stmt_map.append((fn_base + int(off), int(line)))
             code.extend(cleaned)
 
         return self._package_binary(code)
 
+    def _clean_and_patch_with_map(self, body: bytearray, symbol_table: dict, stmt_map: list[tuple[int, int]]):
+        # Translate statement boundary offsets through CALL-marker cleaning.
+        res = bytearray()
+        stmt_sorted = sorted(stmt_map, key=lambda t: t[0])
+        mapped: list[tuple[int, int]] = []
+        next_stmt = 0
+
+        i = 0
+        while i < len(body):
+            while next_stmt < len(stmt_sorted) and stmt_sorted[next_stmt][0] == i:
+                mapped.append((len(res), stmt_sorted[next_stmt][1]))
+                next_stmt += 1
+
+            if body[i] == 0x90 and i + 4 < len(body) and body[i+1:i+5] == b"\xFF\xFF\xFF\xFF":
+                res.append(0x90)
+                i += 5
+                name_chars = bytearray()
+                while i < len(body) and body[i] != 0:
+                    name_chars.append(body[i])
+                    i += 1
+                i += 1  # skip null
+                target_name = name_chars.decode('utf-8')
+                if target_name not in symbol_table:
+                    raise Exception(f"Ontological Error: Calling unknown spirit '{target_name}'")
+                res.extend(struct.pack("<I", symbol_table[target_name]))
+            else:
+                res.append(body[i])
+                i += 1
+
+        while next_stmt < len(stmt_sorted):
+            mapped.append((len(res), stmt_sorted[next_stmt][1]))
+            next_stmt += 1
+
+        return res, mapped
+
     def statements(self, items):
         res = bytearray()
+        stmt_map: list[tuple[int, int]] = []
         for item in items:
-            if isinstance(item, bytearray):
-                res.extend(item)
-        return res
+            ch = self._as_chunk(item)
+            for off, line in ch.stmt_map:
+                stmt_map.append((len(res) + int(off), int(line)))
+            res.extend(ch.code)
+        return LogosToBytecode.CodeChunk(res, stmt_map)
 
-    def statement(self, items): return items[0]
+    @v_args(meta=True)
+    def statement(self, meta, items):
+        line = int(getattr(meta, "line", 1) or 1)
+        ch = self._as_chunk(items[0]) if items else LogosToBytecode.CodeChunk(bytearray(), [])
+        # Ensure the statement's own start is mapped only when it emits code.
+        stmt_map = [(0, line)] if ch.code else []
+        stmt_map.extend(ch.stmt_map)
+        return LogosToBytecode.CodeChunk(ch.code, stmt_map)
 
     def import_stmt(self, items):
         # Static linking is done before parsing.
@@ -812,25 +1116,67 @@ class LogosToBytecode(Transformer):
 
     def council_stmt(self, items):
         # LBC doesn't implement locking, so we emit just the body.
-        return items[-1]
+        ch = self._as_chunk(items[-1])
+        return LogosToBytecode.CodeChunk(ch.code, ch.stmt_map)
 
     # --- Iconography of Data (no-op type info for bytecode) ---
     def struct_def(self, items):
+        # structure NAME (":" NAME)? "{" field_decl+ "}" "amen"
+        name = str(items[0])
+        base = None
+        if len(items) > 1 and isinstance(items[1], str):
+            base = str(items[1])
+        self.struct_bases[name] = base
         return bytearray()
 
     def field_decl(self, items):
         return bytearray()
 
     def params(self, items):
-        return [str(i) for i in items]
+        return items
 
     def param(self, items):
         # param: NAME (":" NAME)?
-        return str(items[0])
+        name = str(items[0])
+        typ = str(items[1]) if len(items) > 1 else None
+        return (name, typ)
+
+    def foreign_def(self, items):
+        # foreign_def: "foreign" STRING "service" NAME "(" params? ")" "->" NAME ";"
+        # items: [STRING, NAME, (params)?, return_type]
+        if len(items) < 3:
+            return bytearray()
+
+        lib_tok = items[0]
+        fn_name = str(items[1])
+        ret_type = str(items[-1])
+        params = items[2] if len(items) > 3 else []
+
+        lib_name = str(lib_tok)
+        if lib_name.startswith('"') and lib_name.endswith('"'):
+            lib_name = lib_name[1:-1]
+
+        arg_types: list[str] = []
+        if params:
+            for p in params:
+                if isinstance(p, tuple) and len(p) == 2:
+                    _, p_typ = p
+                    if p_typ is None:
+                        raise Exception(
+                            f"Ontological Error: Foreign service '{fn_name}' requires typed params (e.g., x: HolyFloat)"
+                        )
+                    arg_types.append(str(p_typ))
+
+        self.foreign_registry[fn_name] = {
+            "lib": lib_name,
+            "arg_types": arg_types,
+            "return_type": ret_type,
+        }
+        return bytearray()
 
     def _capture_function(self, items):
         name = str(items[0])
-        body = items[-1]
+        body = self._as_chunk(items[-1])
         params = []
         for it in items[1:-1]:
             if isinstance(it, list):
@@ -839,14 +1185,20 @@ class LogosToBytecode(Transformer):
         # Prologue: bind params from stack -> synod (reverse order)
         prologue = bytearray()
         for p in reversed(params):
-            const_idx = self._add_const(str(p))
+            p_name = p[0] if isinstance(p, tuple) and len(p) >= 1 else str(p)
+            const_idx = self._add_const(str(p_name))
             prologue.append(0x20)  # PETITION <u32_idx>
             prologue.extend(struct.pack("<I", const_idx))
 
         fn_body = bytearray()
         fn_body.extend(prologue)
-        fn_body.extend(body)
+        fn_body.extend(body.code)
         fn_body.append(0x91)  # RET (Dismissal)
+
+        adjusted: list[tuple[int, int]] = []
+        for off, line in body.stmt_map:
+            adjusted.append((len(prologue) + int(off), int(line)))
+        self.function_stmt_maps[name] = adjusted
 
         self.function_bodies[name] = fn_body
         return bytearray()  # Do not emit into main stream
@@ -880,6 +1232,13 @@ class LogosToBytecode(Transformer):
         res = bytearray()
         res.append(0xE0)
         res.extend(struct.pack("<I", idx))
+        return res
+
+    def transgress_stmt(self, items):
+        # transgress expr;  -> evaluate expr, then THROW
+        res = bytearray()
+        res.extend(items[0])
+        res.append(0xD2)
         return res
 
     def essence_decl(self, items):
@@ -947,27 +1306,36 @@ class LogosToBytecode(Transformer):
         raise Exception(f"Ontological Error: Unsupported assignment target: {target}")
 
     def try_repent_stmt(self, items):
-        # try { try_body } repent NAME { repent_body } amen
+        # try { try_body } repent NAME (: TYPE)? { repent_body } amen
         # Bytecode:
         #   ENTER_TRY <i32_offset_to_catch>
         #   try_body
         #   EXIT_TRY
         #   JMP <i32_offset_to_end>
         # catch:
-        #   PETITION <error_name_const>
+        #   PETITION <error_name_const>    (bind thrown Value)
+        #   [typed only] LOAD_ESS err; PUSH_ESS Type; IS_INSTANCE; JZ rethrow
         #   repent_body
+        #   [typed only] JMP end
+        # rethrow:
+        #   LOAD_ESS err; THROW
         # end:
-        try_body = items[0]
+        try_body = self._as_chunk(items[0])
         error_name = str(items[1])
-        repent_body = items[2]
+        typed = len(items) == 4
+        typ_name = str(items[2]) if typed else None
+        repent_body = self._as_chunk(items[3] if typed else items[2])
 
         res = bytearray()
+        stmt_map: list[tuple[int, int]] = []
 
         enter_pos = len(res)
         res.append(0xD0)  # ENTER_TRY
         res.extend(b"\x00\x00\x00\x00")  # placeholder i32
 
-        res.extend(try_body)
+        for off, line in try_body.stmt_map:
+            stmt_map.append((len(res) + int(off), int(line)))
+        res.extend(try_body.code)
 
         res.append(0xD1)  # EXIT_TRY
 
@@ -977,14 +1345,58 @@ class LogosToBytecode(Transformer):
 
         catch_pos = len(res)
 
-        # Bind error message (string) to repent variable
+        # Bind thrown value to repent variable
         name_idx = self._add_const(error_name)
         res.append(0x20)  # PETITION
         res.extend(struct.pack("<I", name_idx))
 
-        res.extend(repent_body)
+        if typed:
+            # if not IS_INSTANCE(err, typ): rethrow
+            # LOAD_ESS err
+            res.append(0x11)
+            res.extend(struct.pack("<I", name_idx))
+            # PUSH_ESS typ
+            typ_idx = self._add_const(typ_name)
+            res.append(0x10)
+            res.extend(struct.pack("<I", typ_idx))
+            # IS_INSTANCE
+            res.append(0xD3)
 
-        end_pos = len(res)
+            # JZ -> rethrow
+            jz_pos = len(res)
+            res.append(0x81)
+            res.extend(b"\x00\x00\x00\x00")
+
+            for off, line in repent_body.stmt_map:
+                stmt_map.append((len(res) + int(off), int(line)))
+            res.extend(repent_body.code)
+
+            # JMP -> end (skip rethrow)
+            catch_jmp_end_pos = len(res)
+            res.append(0x80)  # JMP end
+            res.extend(b"\x00\x00\x00\x00")
+
+            # rethrow:
+            rethrow_pos = len(res)
+            res.append(0x11)  # LOAD_ESS err
+            res.extend(struct.pack("<I", name_idx))
+            res.append(0xD2)  # THROW
+
+            end_pos = len(res)
+
+            # Patch JZ-to-rethrow offset
+            jz_after = jz_pos + 5
+            res[jz_pos+1:jz_pos+5] = struct.pack("<i", rethrow_pos - jz_after)
+
+            # Patch catch JMP-to-end
+            jmp_after2 = catch_jmp_end_pos + 5
+            res[catch_jmp_end_pos+1:catch_jmp_end_pos+5] = struct.pack("<i", end_pos - jmp_after2)
+        else:
+            for off, line in repent_body.stmt_map:
+                stmt_map.append((len(res) + int(off), int(line)))
+            res.extend(repent_body.code)
+
+            end_pos = len(res)
 
         # Patch ENTER_TRY offset (relative to PC after reading the offset)
         # VM computes catch_addr = (pc_after_operand) + offset
@@ -995,14 +1407,16 @@ class LogosToBytecode(Transformer):
         jmp_after = jmp_pos + 5
         res[jmp_pos+1:jmp_pos+5] = struct.pack("<i", end_pos - jmp_after)
 
-        return res
+        return LogosToBytecode.CodeChunk(res, stmt_map)
 
     def case_label(self, items):
+        if not items:
+            return "_"
         return str(items[0])
 
     def inspect_case(self, items):
         # inspect_case: "case" case_label ":" statement
-        return (str(items[0]), items[1])
+        return (str(items[0]), self._as_chunk(items[1]))
 
     def inspect_stmt(self, items):
         # inspect_stmt: "inspect" "(" expr ")" "{" inspect_case+ "}" "amen"
@@ -1010,12 +1424,13 @@ class LogosToBytecode(Transformer):
         cases = items[1:]
         table = {label: body for (label, body) in cases}
 
-        then_body = table.get("Verily", bytearray())
+        then_body = table.get("Verily", LogosToBytecode.CodeChunk(bytearray(), []))
         else_body = table.get("Nay")
         if else_body is None:
-            else_body = table.get("_", bytearray())
+            else_body = table.get("_", LogosToBytecode.CodeChunk(bytearray(), []))
 
         res = bytearray()
+        stmt_map: list[tuple[int, int]] = []
         res.extend(expr)
 
         # JZ -> else
@@ -1023,7 +1438,9 @@ class LogosToBytecode(Transformer):
         res.append(0x81)
         res.extend(b"\x00\x00\x00\x00")
 
-        res.extend(then_body)
+        for off, line in then_body.stmt_map:
+            stmt_map.append((len(res) + int(off), int(line)))
+        res.extend(then_body.code)
 
         # JMP -> end
         jmp_pos = len(res)
@@ -1031,7 +1448,9 @@ class LogosToBytecode(Transformer):
         res.extend(b"\x00\x00\x00\x00")
 
         else_pos = len(res)
-        res.extend(else_body)
+        for off, line in else_body.stmt_map:
+            stmt_map.append((len(res) + int(off), int(line)))
+        res.extend(else_body.code)
 
         end_pos = len(res)
 
@@ -1040,14 +1459,15 @@ class LogosToBytecode(Transformer):
 
         jmp_after = jmp_pos + 5
         res[jmp_pos+1:jmp_pos+5] = struct.pack("<i", end_pos - jmp_after)
-        return res
+        return LogosToBytecode.CodeChunk(res, stmt_map)
 
     def cycle_stmt(self, items):
         # cycle expr ("limit" NUMBER)? "{" statements "}" "amen"
         expr = items[0]
-        body = items[-1]
+        body = self._as_chunk(items[-1])
         
         res = bytearray()
+        stmt_map: list[tuple[int, int]] = []
         start_pos = 0 # Relative to this block
         
         # 1. Evaluate expr
@@ -1059,7 +1479,9 @@ class LogosToBytecode(Transformer):
         res.extend(b"\x00\x00\x00\x00")
         
         # 3. Body
-        res.extend(body)
+        for off, line in body.stmt_map:
+            stmt_map.append((len(res) + int(off), int(line)))
+        res.extend(body.code)
         
         # 4. JMP to start
         current_pos = len(res)
@@ -1072,7 +1494,7 @@ class LogosToBytecode(Transformer):
         jz_offset = end_pos - (jz_placeholder_pos + 5)
         res[jz_placeholder_pos+1:jz_placeholder_pos+5] = struct.pack("<i", jz_offset)
         
-        return res
+        return LogosToBytecode.CodeChunk(res, stmt_map)
 
     def kairos_stmt(self, items):
         # For now, LBC doesn't support full Kairos, so we treat it as a simple if
@@ -1080,7 +1502,7 @@ class LogosToBytecode(Transformer):
         body = items[1] if not isinstance(items[1], list) else items[1] # Simplified
         # This is complex to implement in LBC without labels. 
         # Let's just return the body for now to avoid breaking compilation.
-        return body
+        return self._as_chunk(body)
 
     def fast_stmt(self, items):
         res = bytearray()
@@ -1119,9 +1541,34 @@ class LogosToBytecode(Transformer):
 
     def struct_literal(self, items):
         # struct_literal: "new" NAME "{" field_inits? "}"
+        type_name = str(items[0])
         fields = items[1] if len(items) > 1 else []
         res = bytearray()
         count = 0
+
+        # Embed minimal runtime type info for Confession/typed repentance.
+        # __type__ = "TypeName"
+        type_key_idx = self._add_const("__type__")
+        res.append(0x10)  # PUSH_ESS
+        res.extend(struct.pack("<I", type_key_idx))
+        type_val_idx = self._add_const(type_name)
+        res.append(0x10)  # PUSH_ESS
+        res.extend(struct.pack("<I", type_val_idx))
+        count += 1
+
+        # __bases__ = ["Base", "Sin", ...]
+        bases_key_idx = self._add_const("__bases__")
+        res.append(0x10)  # PUSH_ESS
+        res.extend(struct.pack("<I", bases_key_idx))
+        bases = self._ancestors_for(type_name)
+        for b in bases:
+            b_idx = self._add_const(b)
+            res.append(0x10)  # PUSH_ESS
+            res.extend(struct.pack("<I", b_idx))
+        res.append(0xA0)  # GATHER
+        res.extend(struct.pack("<I", len(bases)))
+        count += 1
+
         for f_name, f_expr in fields:
             key_idx = self._add_const(f_name)
             res.append(0x10)  # PUSH_ESS
@@ -1297,6 +1744,40 @@ class LogosToBytecode(Transformer):
         name = str(items[0])
         args_list = items[1] if len(items) > 1 else []
 
+        # Great Commission: foreign calls
+        if name in self.foreign_registry:
+            meta = self.foreign_registry[name]
+            lib = str(meta["lib"])
+            arg_types = list(meta.get("arg_types") or [])
+            ret_type = str(meta.get("return_type") or "Void")
+
+            if len(arg_types) != len(args_list):
+                raise Exception(
+                    f"Ontological Error: Foreign call '{name}' expects {len(arg_types)} args but got {len(args_list)}"
+                )
+
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+
+            res.append(0xFE)  # INVOKE_FOREIGN
+
+            enc_lib = lib.encode("utf-8")
+            res.extend(struct.pack("<I", len(enc_lib)))
+            res.extend(enc_lib)
+
+            enc_func = name.encode("utf-8")
+            res.extend(struct.pack("<I", len(enc_func)))
+            res.extend(enc_func)
+
+            res.append(self._ffi_type_tag(ret_type, "return"))
+
+            res.append(len(arg_types) & 0xFF)
+            for t in arg_types:
+                res.append(self._ffi_type_tag(t, "arg") & 0xFF)
+
+            return res
+
         # Intrinsics: The Communion of Text
         if name == "measure":
             res = bytearray()
@@ -1323,6 +1804,47 @@ class LogosToBytecode(Transformer):
             for a in args_list:
                 res.extend(a)
             res.append(0xA3)  # ALLOC
+            return res
+
+        # --- The Book of Genesis (System Intrinsics) ---
+        if name == "__sys_open":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xF0)  # SYS_OPEN
+            return res
+
+        if name == "__sys_write":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xF1)  # SYS_WRITE
+            return res
+
+        if name == "__sys_read":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xF2)  # SYS_READ
+            return res
+
+        if name == "__sys_close":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xF3)  # SYS_CLOSE
+            return res
+
+        if name == "__sys_time":
+            res = bytearray()
+            res.append(0xF4)  # SYS_TIME
+            return res
+
+        if name == "__sys_env":
+            res = bytearray()
+            for a in args_list:
+                res.extend(a)
+            res.append(0xF5)  # SYS_ENV
             return res
 
         # Standard call: args..., CALL <patched addr>
@@ -1473,6 +1995,26 @@ def compile_and_run(filename, target="python", out_path: str | None = None):
             os.makedirs(out_dir, exist_ok=True)
         with open(out_name, "wb") as f:
             f.write(lbc)
+
+        # The Inquisition: emit debug sidecars for source mapping.
+        src_name = out_name + ".src.lg"
+        sym_name = out_name + ".sym"
+
+        try:
+            with open(src_name, "w", encoding="utf-8") as sf:
+                sf.write(full_source)
+            transformer.last_source_path = os.path.abspath(src_name)
+        except OSError:
+            transformer.last_source_path = None
+
+        try:
+            with open(sym_name, "w", encoding="utf-8") as symf:
+                if transformer.last_source_path:
+                    symf.write(f"source={transformer.last_source_path}\n")
+                for pc, line in sorted(transformer.last_global_stmt_map, key=lambda t: t[0]):
+                    symf.write(f"{pc}\t{line}\n")
+        except OSError as e:
+            print(f"[!] Warning: Could not write debug symbols: {e}")
         print(f"[+] Sanctification complete: {out_name}")
 
 if __name__ == "__main__":
@@ -1483,3 +2025,99 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     compile_and_run(args.filename, args.target, out_path=args.out)
+
+
+class LogosCompiler:
+    """Stateful compiler helper for tools like the Catechism REPL.
+
+    Key property: keeps a persistent constant pool so fragment bytecode
+    can reference global constant indices without patching.
+    """
+
+    def __init__(self):
+        base_dir = os.path.dirname(__file__)
+        lark_path = os.path.join(base_dir, "logos.lark")
+        self.parser = Lark(open(lark_path, encoding="utf-8").read(), parser="lalr", propagate_positions=True)
+        self.constants: list[object] = []
+
+    @staticmethod
+    def _wrap_fragment(source_code: str) -> str:
+        # Wrap in a ministry so statements like `behold` are valid.
+        return f"ministry repl_wrapper() -> Void {{\n{source_code}\n}} amen\n"
+
+    @staticmethod
+    def _find_unresolved_call_marker(code: bytes) -> str | None:
+        # Unpatched CALL markers are encoded as:
+        #   0x90 + 0xFFFFFFFF + utf8(name) + 0x00
+        i = 0
+        while i + 5 <= len(code):
+            if code[i] == 0x90 and code[i + 1:i + 5] == b"\xFF\xFF\xFF\xFF":
+                j = i + 5
+                name_bytes = bytearray()
+                while j < len(code) and code[j] != 0:
+                    name_bytes.append(code[j])
+                    j += 1
+                try:
+                    return name_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    return "<invalid utf8>"
+            i += 1
+        return None
+
+    def compile_fragment(self, source_code: str, existing_symbols: dict[str, str] | None = None):
+        """Compile a single REPL fragment.
+
+        Returns: (bytecode, new_constants, newly_defined_symbols)
+        - bytecode: raw opcodes (no header/constant pool packaging)
+        - new_constants: constants appended since the previous fragment
+        - newly_defined_symbols: dict of {name: type} for newly declared gifts/essences
+
+        Limitations (v0): fragments may not call user-defined services.
+        Only intrinsics (measure/passage/alloc/...) are allowed.
+        """
+
+        existing_symbols = existing_symbols or {}
+        wrapped = self._wrap_fragment(source_code)
+        tree = self.parser.parse(wrapped)
+
+        # REPL mode: we still run Diakrisis for type consistency, but we seed
+        # it with prior symbol types so NAME expressions can be inferred.
+        engine = DiakrisisEngine()
+        engine.symbol_types.update(existing_symbols)
+        for name, typ in existing_symbols.items():
+            if typ == "HolyInt":
+                engine.symbols[name] = z3.Real(name)
+
+        engine.visit(tree)
+        newly_defined_symbols = {
+            k: v for (k, v) in engine.symbol_types.items() if k not in existing_symbols
+        }
+
+        # Extract just the wrapper body statements and compile to raw opcodes.
+        ministry_node = None
+        for stmt in tree.find_data("ministry_def"):
+            ministry_node = stmt
+            break
+        if ministry_node is None:
+            for stmt in tree.find_data("service_def"):
+                ministry_node = stmt
+                break
+        if ministry_node is None:
+            raise Exception("Catechism Error: internal wrapper was not parsed as a ministry/service")
+
+        stmts_node = ministry_node.children[-1]
+
+        old_const_len = len(self.constants)
+        transformer = LogosToBytecode()
+        transformer.constants = self.constants
+        code = transformer.transform(stmts_node)
+
+        bad = self._find_unresolved_call_marker(bytes(code))
+        if bad is not None:
+            raise Exception(
+                f"Catechism Error: REPL fragments cannot call '{bad}' yet. "
+                "(Only intrinsics like measure/passage/alloc are supported in v0.)"
+            )
+
+        new_constants = self.constants[old_const_len:]
+        return code, new_constants, newly_defined_symbols
