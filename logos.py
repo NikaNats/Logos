@@ -2,24 +2,24 @@ import ctypes
 import os
 import sys
 import time
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Set, Union, TextIO
 
 from lark import Lark
 from lark.visitors import Interpreter
 
+# ==========================================
+# 1. Grammar & Constants
+# ==========================================
 
-GRAMMAR = r"""
+LOGOS_GRAMMAR = r"""
     start: statement*
 
     // --- LITURGY (Statements) ---
-    // Creation
     statement: "proclaim" expr ";"                                   -> proclaim
              | "inscribe" NAME (":" NAME)? "=" expr ";"              -> inscribe
-
-             // Mutation (NEW: For lists, objects, and re-assignment)
              | "amend" mutable "=" expr ";"                          -> amend
-
-             // Flow
              | "apocrypha" STRING "mystery" NAME "(" params? ")" ("->" NAME)? ";" -> apocrypha
              | "tradition" STRING ";"                                -> tradition
              | "chant" expr block "amen"                             -> chant
@@ -34,19 +34,15 @@ GRAMMAR = r"""
 
     block: "{" statement* "}"                                        -> block
 
-    // --- STRUCTURES ---
     field_decl: NAME ":" NAME ";"
     params: param ("," param)*
     param: NAME (":" NAME)?
 
-    // --- CONTEMPLATION ---
     case_clause: "aspect" pattern ":" case_body
     ?case_body: block | statement
     ?pattern: "_" -> wildcard | expr
 
-    // --- EXPRESSIONS & DOGMA ---
     ?expr: equality
-
     ?equality: comparison
              | equality "is" comparison               -> eq
              | equality "is" "not" comparison         -> ne
@@ -73,14 +69,11 @@ GRAMMAR = r"""
     ?call: access
          | NAME "(" args? ")" -> call
 
-        // --- ACCESS & MUTATION ---
-        // 'access' is for reading (expressions)
-        ?access: atom
+    ?access: atom
             | access "." NAME        -> get_attr
             | access "[" expr "]"    -> get_item
 
-        // 'mutable' is for writing (assignments)
-        ?mutable: NAME                  -> mut_var
+    ?mutable: NAME                  -> mut_var
              | mutable "." NAME      -> mut_attr
              | mutable "[" expr "]"  -> mut_item
 
@@ -90,7 +83,7 @@ GRAMMAR = r"""
         | STRING  -> string
         | "Verily" -> verily
         | "Nay"    -> nay
-        | "[" expr ("," expr)* "]"          -> procession  // <--- NEW: Lists
+        | "[" expr ("," expr)* "]"          -> procession
         | "write" NAME "{" assign_list? "}" -> write_icon
         | NAME    -> var
         | "(" expr ")"
@@ -108,759 +101,607 @@ GRAMMAR = r"""
     %ignore /\/\/.*/
 """
 
+# ==========================================
+# 2. Domain Models & Exceptions
+# ==========================================
+
+class LogosError(Exception):
+    """Base exception for the runtime."""
+    pass
+
+class ReturnSignal(Exception):
+    """Control flow signal for returning values from functions."""
+    def __init__(self, value: Any):
+        self.value = value
 
 @dataclass
 class ForeignFunction:
-    func: object
-    restype: object
-    argtypes: list[object] | None = None
-
+    """Represents a bound C-library function."""
+    func: Any
+    restype: Any
+    argtypes: List[Any]
 
 @dataclass(frozen=True)
 class UserFunction:
+    """Represents a function defined in Logos."""
     name: str
-    params: list[str]
-    body: object
+    params: List[str]
+    body: Any
 
+# ==========================================
+# 3. Component Managers (The "Spirits")
+# ==========================================
 
-class _ReturnSignal(Exception):
-    def __init__(self, value: object):
-        super().__init__("return")
-        self.value = value
+class ScopeManager:
+    """
+    Manages variables, globals, and the call stack.
+    Implements variable resolution strategy (Local -> Global -> Builtin).
+    """
+    def __init__(self):
+        self.globals: Dict[str, Any] = {}
+        self.stack: List[Dict[str, Any]] = []
+        
+    def push_frame(self, frame: Dict[str, Any]) -> None:
+        self.stack.append(frame)
 
+    def pop_frame(self) -> None:
+        if self.stack:
+            self.stack.pop()
 
-class LogosInterpreter(Interpreter):
-    def __init__(self, base_path: str | None = None):
-        import re
-
-        self._re_icon_name = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
-        self._re_mystery_name = re.compile(r"^[a-z][a-z0-9_]*$")
-
-        self._globals: dict[str, object] = {}
-        self._stack: list[dict[str, object]] = []
-        self._libs: dict[str, ctypes.CDLL] = {}
-        self._imported: set[str] = set()
-        self._icon_fields: dict[str, list[str]] = {}
-        self._functions: dict[str, UserFunction] = {}
-
-        self.base_path = os.path.abspath(base_path or os.getcwd())
-
-        # --- THE LIMIT OF HUMILITY ---
-        self._call_depth = 0
-        self._max_depth = 1000
-
-        # --- PRE-ORDAINED SPIRITS (System Intrinsics) ---
-        self._fds: dict[int, object] = {}
-        self._next_fd = 3
-
-        # Time and Environment
-        self._globals["now"] = lambda: int(time.time() * 1000)
-        self._globals["env"] = lambda k: os.environ.get(str(k), "")
-        # Back-compat names
-        self._globals["__sys_time"] = self._globals["now"]
-        self._globals["__sys_env"] = self._globals["env"]
-
-        self._globals["__sys_open"] = self._intrinsic_open
-        self._globals["__sys_write"] = self._intrinsic_write
-        self._globals["__sys_read"] = self._intrinsic_read
-        self._globals["__sys_close"] = self._intrinsic_close
-
-        # Measurements / list handling
-        self._globals["measure"] = self._intrinsic_measure
-        self._globals["append"] = self._intrinsic_append
-        self._globals["adorn"] = self._intrinsic_adorn
-        self._globals["extract"] = self._intrinsic_extract
-        self._globals["purge"] = self._intrinsic_purge
-        self._globals["passage"] = lambda s, start, l: str(s)[int(start) : int(start) + int(l)]
-
-        # 1. System Control
-        self._globals["__sys_sleep"] = lambda ms: time.sleep(float(ms) / 1000.0)
-        self._globals["__sys_exit"] = lambda code: sys.exit(int(code))
-
-        # 2. String/Type Sparks
-        self._globals["__sys_ord"] = lambda s: ord(str(s)[0]) if str(s) else 0
-        self._globals["__sys_chr"] = lambda n: chr(int(n))
-        self._globals["__sys_str"] = lambda x: str(x)
-
-        # Expose raw CLI arguments as a Procession.
-        # sys.argv[2:] are arguments after the filename.
-        args = sys.argv[2:] if len(sys.argv) > 2 else []
-        self._globals["argv"] = list(args)
-
-    def proclaim(self, tree):
-        val = self.visit(tree.children[0])
-        if isinstance(val, bool):
-            print(f"☩ {'Verily' if val else 'Nay'}")
-            return
-        print(f"☩ {val}")
-
-    def inscribe(self, tree):
-        name = str(tree.children[0])
-        # Optional type annotation is ignored.
-        expr_idx = 2 if len(tree.children) == 3 else 1
-        val = self.visit(tree.children[expr_idx])
-        self._set_var(name, val)
-        return val
-
-    def expr_stmt(self, tree):
-        return self.visit(tree.children[0])
-
-    def var(self, tree):
-        name = str(tree.children[0])
-        if name in ("None", "Void"):
-            return None
-        for frame in reversed(self._stack):
+    def get(self, name: str) -> Any:
+        # Check Stack (Local scopes)
+        for frame in reversed(self.stack):
             if name in frame:
                 return frame[name]
-        if name in self._globals:
-            return self._globals[name]
-        if name in self._functions:
-            return self._functions[name]
-        raise Exception(f"Heresy: Unknown spirit '{name}'")
+        # Check Globals
+        if name in self.globals:
+            return self.globals[name]
+        
+        raise LogosError(f"Heresy: Unknown spirit '{name}'")
 
-    def number(self, tree):
-        text = str(tree.children[0])
-        return float(text) if "." in text else int(text)
-
-    def atom(self, tree):
-        if not tree.children:
-            return None
-        return self.visit(tree.children[0])
-
-    def string(self, tree):
-        return str(tree.children[0])[1:-1].replace("\\n", "\n")
-
-    def verily(self, tree):
-        return True
-
-    def nay(self, tree):
-        return False
-
-    def add(self, tree):
-        left = self.visit(tree.children[0])
-        right = self.visit(tree.children[1])
-
-        if isinstance(left, str) or isinstance(right, str):
-            return str(left) + str(right)
-        if isinstance(left, list) and isinstance(right, list):
-            return left + right
-        return left + right
-
-    def sub(self, tree):
-        return self.visit(tree.children[0]) - self.visit(tree.children[1])
-
-    def neg(self, tree):
-        return -self.visit(tree.children[0])
-
-    def eq(self, tree):
-        return self.visit(tree.children[0]) == self.visit(tree.children[1])
-
-    def ne(self, tree):
-        return self.visit(tree.children[0]) != self.visit(tree.children[1])
-
-    def lt(self, tree):
-        return self.visit(tree.children[0]) < self.visit(tree.children[1])
-
-    def gt(self, tree):
-        return self.visit(tree.children[0]) > self.visit(tree.children[1])
-
-    def le(self, tree):
-        return self.visit(tree.children[0]) <= self.visit(tree.children[1])
-
-    def ge(self, tree):
-        return self.visit(tree.children[0]) >= self.visit(tree.children[1])
-
-    def mul(self, tree):
-        return self.visit(tree.children[0]) * self.visit(tree.children[1])
-
-    def div(self, tree):
-        return self.visit(tree.children[0]) / self.visit(tree.children[1])
-
-    def block(self, tree):
-        last = None
-        for stmt in tree.children:
-            last = self.visit(stmt)
-        return last
-
-    def discernment(self, tree):
-        cond_expr = tree.children[0]
-        then_block = tree.children[1]
-        else_block = tree.children[2]
-
-        if self.visit(cond_expr):
-            return self.visit(then_block)
-        return self.visit(else_block)
-
-    def chant(self, tree):
-        cond_node = tree.children[0]
-        body_block = tree.children[1]
-
-        while self.visit(cond_node):
-            self.visit(body_block)
-
-    def vigil(self, tree):
-        try_block = tree.children[0]
-        err_name = str(tree.children[1])
-        repent_block = tree.children[2]
-
-        try:
-            return self.visit(try_block)
-        except _ReturnSignal:
-            raise
-        except Exception as e:
-            self._set_var(err_name, str(e))
-            return self.visit(repent_block)
-
-    def offer(self, tree):
-        val = self.visit(tree.children[0])
-        raise _ReturnSignal(val)
-
-    def silence(self, tree):
-        return None
-
-    def transfigure(self, tree):
-        val = self.visit(tree.children[0])
-        typ = str(tree.children[1])
-        if typ in ("HolyInt", "Int"):
-            return int(val)
-        if typ in ("HolyFloat", "Float"):
-            return float(val)
-        if typ in ("Text", "String"):
-            return str(val)
-        return val
-
-    def supplicate(self, tree):
-        prompt = self.visit(tree.children[0])
-        return input(str(prompt))
-
-    def get_attr(self, tree):
-        obj = self.visit(tree.children[0])
-        name = str(tree.children[1])
-        if isinstance(obj, dict):
-            return obj.get(name)
-        return getattr(obj, name)
-
-    def procession(self, tree):
-        return [self.visit(child) for child in tree.children]
-
-    def get_item(self, tree):
-        container = self.visit(tree.children[0])
-        idx_val = self.visit(tree.children[1])
-
-        try:
-            if isinstance(container, list):
-                return container[int(idx_val)]
-            if isinstance(container, str):
-                return container[int(idx_val)]
-            if isinstance(container, dict):
-                return container[idx_val]
-            if hasattr(container, "__getitem__"):
-                return container[idx_val]
-        except Exception:
-            pass
-        raise Exception(f"Anathema: Cannot seek index {idx_val} in {type(container)}")
-
-    def amend(self, tree):
-        target_node = tree.children[0]
-        value = self.visit(tree.children[1])
-        self._perform_mutation(target_node, value)
-        return None
-
-    def _eval_mutable(self, node) -> object:
-        rule = getattr(node, "data", None)
-
-        if rule == "mut_var":
-            name = str(node.children[0])
-            return self._resolve_name(name)
-
-        if rule == "mut_item":
-            container = self._eval_mutable(node.children[0])
-            index = self.visit(node.children[1])
-            try:
-                if isinstance(container, list):
-                    return container[int(index)]
-                if isinstance(container, dict):
-                    return container[index]
-                if isinstance(container, str):
-                    return container[int(index)]
-                return container[index]
-            except Exception as e:
-                raise Exception(f"Anathema: Cannot seek index {index} in {type(container)}") from e
-
-        if rule == "mut_attr":
-            container = self._eval_mutable(node.children[0])
-            name = str(node.children[1])
-            if isinstance(container, dict):
-                return container.get(name)
-            return getattr(container, name)
-
-        # Fallback: if passed an expression accidentally, evaluate it normally.
-        return self.visit(node)
-
-    def _perform_mutation(self, node, value) -> None:
-        rule = getattr(node, "data", None)
-
-        if rule == "mut_var":
-            name = str(node.children[0])
-            self._set_var(name, value)
+    def set(self, name: str, value: Any) -> None:
+        # Update existing in Stack
+        for frame in reversed(self.stack):
+            if name in frame:
+                frame[name] = value
+                return
+        # Update existing in Globals
+        if name in self.globals:
+            self.globals[name] = value
             return
+        
+        # Define new: if in function, local; otherwise global
+        if self.stack:
+            self.stack[-1][name] = value
+        else:
+            self.globals[name] = value
 
-        if rule == "mut_item":
-            container = self._eval_mutable(node.children[0])
-            index = self.visit(node.children[1])
-            if isinstance(container, list):
-                container[int(index)] = value
-                return
-            if isinstance(container, dict):
-                container[index] = value
-                return
-            raise Exception("Heresy: Cannot amend an immutable spirit.")
+    def register_builtin(self, name: str, value: Any) -> None:
+        self.globals[name] = value
 
-        if rule == "mut_attr":
-            container = self._eval_mutable(node.children[0])
-            name = str(node.children[1])
-            if isinstance(container, dict):
-                container[name] = value
-                return
-            setattr(container, name, value)
-            return
 
-        raise Exception(f"Schism: Cannot amend target of type '{rule}'")
+class FFIManager:
+    """
+    Handles loading shared libraries and marshalling types (Apocrypha).
+    """
+    def __init__(self):
+        self.libs: Dict[str, ctypes.CDLL] = {}
 
-    def wildcard(self, tree):
-        return "__WILDCARD__"
+    def get_ctype(self, type_name: str) -> Any:
+        mapping = {
+            "HolyFloat": ctypes.c_double, "Float": ctypes.c_double, "Double": ctypes.c_double,
+            "HolyInt": ctypes.c_longlong, "Int": ctypes.c_longlong,
+            "Bool": ctypes.c_bool, "Verily": ctypes.c_bool, "Nay": ctypes.c_bool,
+            "Text": ctypes.c_char_p, "String": ctypes.c_char_p
+        }
+        return mapping.get(type_name, ctypes.c_double)
 
-    def contemplation(self, tree):
-        inspect_val = self.visit(tree.children[0])
-        case_nodes = tree.children[1:]
-
-        for case_node in case_nodes:
-            # case_clause: pattern, body
-            pattern_node = case_node.children[0]
-            body_node = case_node.children[1]
-
-            pattern_val = self.visit(pattern_node)
-            if pattern_val == "__WILDCARD__" or inspect_val == pattern_val:
-                return self.visit(body_node)
-
-        return None
-
-    def case_clause(self, tree):
-        # Container node; handled in contemplation().
-        return tree
-
-    def icon_def(self, tree):
-        name = str(tree.children[0])
-        if not self._re_icon_name.fullmatch(name):
-            raise Exception(
-                f"Canon Error: Icons must be Capitalized (e.g., Saint). Got '{name}'"
-            )
-        fields: list[str] = []
-        for child in tree.children[1:]:
-            # field_decl: NAME ':' TYPE ';'
-            if hasattr(child, "children") and child.children:
-                fields.append(str(child.children[0]))
-        self._icon_fields[name] = fields
-        return None
-
-    def assign(self, tree):
-        return (str(tree.children[0]), self.visit(tree.children[1]))
-
-    def assign_list(self, tree):
-        return [self.visit(c) for c in tree.children]
-
-    def write_icon(self, tree):
-        name = str(tree.children[0])
-        assigns = []
-        if len(tree.children) > 1:
-            assigns = self.visit(tree.children[1])
-        obj: dict[str, object] = {"__icon__": name}
-        for k, v in assigns:
-            obj[k] = v
-        return obj
-
-    def tradition(self, tree):
-        filename = str(tree.children[0])[1:-1]
-
-        # Resolve relative to the entry file directory.
-        path = filename
-        if not os.path.isabs(path):
-            path = os.path.join(self.base_path, path)
-        path = os.path.abspath(path)
-
-        if path in self._imported:
-            return None
-        self._imported.add(path)
-
-        if not os.path.exists(path):
-            raise Exception(f"Schism: Tradition not found: {filename}")
-
-        with open(path, "r", encoding="utf-8") as f:
-            source = f.read()
-
-        parser = Lark(GRAMMAR, parser="lalr")
-        imported_tree = parser.parse(source)
-        return self.visit(imported_tree)
-
-    def mystery_def(self, tree):
-        # The grammar defines mysteries; optional param type and return type are ignored.
-        # Children layout (typical):
-        # 0: NAME (function name)
-        # 1: params? (Tree)
-        # 2: return type? (Token NAME)
-        # last: block
-        name = str(tree.children[0])
-
-        if not self._re_mystery_name.fullmatch(name):
-            raise Exception(
-                f"Canon Error: Mysteries must be snake_case (e.g., main, recursive_chant). Got '{name}'"
-            )
-
-        idx = 1
-        params: list[str] = []
-        if idx < len(tree.children) and getattr(tree.children[idx], "data", None) == "params":
-            for p in tree.children[idx].children:
-                params.append(str(p.children[0]))
-            idx += 1
-
-        # Optional return type is ignored.
-        if idx < len(tree.children) and getattr(tree.children[idx], "type", None) == "NAME":
-            idx += 1
-
-        body = tree.children[idx]
-        self._functions[name] = UserFunction(name=name, params=params, body=body)
-        return None
-
-    def _platform_library_filename(self, lib_name: str) -> str:
-        # If user passes an explicit filename (e.g. "msvcrt.dll"), respect it.
+    def load_library(self, lib_name: str) -> str:
         if lib_name.lower().endswith((".dll", ".so", ".dylib")):
-            return lib_name
+            filename = lib_name
+        elif os.name == "nt":
+            filename = f"{lib_name}.dll"
+        elif sys.platform == "darwin":
+            filename = f"lib{lib_name}.dylib"
+        else:
+            filename = f"lib{lib_name}.so"
 
-        if os.name == "nt":
-            return f"{lib_name}.dll"
-        if sys.platform == "darwin":
-            return f"lib{lib_name}.dylib"
-        return f"lib{lib_name}.so"
+        if filename not in self.libs:
+            try:
+                self.libs[filename] = ctypes.CDLL(filename)
+            except OSError as e:
+                raise LogosError(f"Schism: Could not bind Apocrypha '{filename}': {e}")
+        
+        return filename
 
-    def _intrinsic_open(self, path, mode):
-        try:
-            p = str(path)
-            if not os.path.isabs(p):
-                p = os.path.join(self.base_path, p)
+    def bind_function(self, lib_name: str, func_name: str, arg_types: List[str], ret_type: str) -> ForeignFunction:
+        lib = self.libs[self.load_library(lib_name)]
+        func = getattr(lib, func_name)
+        
+        c_restype = self.get_ctype(ret_type)
+        c_argtypes = [self.get_ctype(t) for t in arg_types]
+        
+        func.restype = c_restype
+        func.argtypes = c_argtypes
+        
+        return ForeignFunction(func, c_restype, c_argtypes)
 
-            m = mode
-            if isinstance(m, str):
-                mode_int = int(m)
+    def marshal_args(self, args: List[Any], definition: ForeignFunction) -> List[Any]:
+        c_args = []
+        for val, c_type in zip(args, definition.argtypes):
+            if c_type == ctypes.c_char_p:
+                if isinstance(val, (bytes, bytearray)):
+                    c_args.append(bytes(val))
+                else:
+                    c_args.append(str(val).encode("utf-8"))
+            elif c_type == ctypes.c_double:
+                c_args.append(float(val))
+            elif c_type == ctypes.c_longlong:
+                c_args.append(int(val))
             else:
-                mode_int = int(m)
-            modes = {0: "r", 1: "w", 2: "a"}
-            py_mode = modes.get(mode_int, "r")
-            f = open(p, py_mode, encoding="utf-8" if "b" not in py_mode else None)
+                c_args.append(val)
+        return c_args
 
+    @staticmethod
+    def infer_ctype_from_value(val: Any) -> Any:
+        # Heuristic inference when the apocrypha declaration omits arg types.
+        # Default numeric values to double, matching common C library signatures.
+        if isinstance(val, (bytes, bytearray, str)):
+            return ctypes.c_char_p
+        if isinstance(val, bool):
+            return ctypes.c_bool
+        if isinstance(val, (int, float)):
+            return ctypes.c_double
+        return ctypes.c_double
+
+
+class StdLib:
+    """
+    Registry of Standard Library functions (System Intrinsics).
+    """
+    def __init__(self, base_path: str):
+        self.base_path = base_path
+        self._fds: Dict[int, TextIO] = {}
+        self._next_fd = 3
+
+    def register_into(self, scope: ScopeManager):
+        # Time & Env
+        scope.register_builtin("now", lambda: int(time.time() * 1000))
+        scope.register_builtin("env", lambda k: os.environ.get(str(k), ""))
+        
+        # System control
+        scope.register_builtin("__sys_sleep", lambda ms: time.sleep(float(ms) / 1000.0))
+        scope.register_builtin("__sys_exit", lambda c: sys.exit(int(c)))
+        
+        # IO
+        scope.register_builtin("__sys_open", self._open)
+        scope.register_builtin("__sys_close", self._close)
+        scope.register_builtin("__sys_write", self._write)
+        scope.register_builtin("__sys_read", self._read)
+        
+        # Lists
+        scope.register_builtin("measure", self._measure)
+        scope.register_builtin("append", self._append)
+        scope.register_builtin("extract", self._extract)
+        scope.register_builtin("purge", self._purge)
+        
+        # Types
+        scope.register_builtin("__sys_str", str)
+        scope.register_builtin("argv", sys.argv[2:] if len(sys.argv) > 2 else [])
+
+    def _open(self, path: str, mode: Union[int, str]) -> int:
+        try:
+            abs_path = os.path.abspath(os.path.join(self.base_path, str(path)))
+            mode_str = {0: "r", 1: "w", 2: "a"}.get(int(mode), "r")
             fd = self._next_fd
+            self._fds[fd] = open(abs_path, mode_str, encoding="utf-8")
             self._next_fd += 1
-            self._fds[fd] = f
             return fd
         except Exception:
             return 0
 
-    def _intrinsic_write(self, fd, content):
-        try:
-            fd_int = int(fd)
-            f = self._fds.get(fd_int)
-            if f is None:
-                return False
+    def _close(self, fd: int):
+        f = self._fds.pop(int(fd), None)
+        if f: f.close()
+
+    def _write(self, fd: int, content: str):
+        f = self._fds.get(int(fd))
+        if f:
             f.write(str(content))
             f.flush()
             return True
-        except Exception:
-            return False
+        return False
 
-    def _intrinsic_read(self, fd, length):
-        try:
-            fd_int = int(fd)
-            f = self._fds.get(fd_int)
-            if f is None:
-                return ""
-            n = int(length)
-            if n < 0:
-                return f.read()
-            return f.read(n)
-        except Exception:
-            return ""
+    def _read(self, fd: int, length: int):
+        f = self._fds.get(int(fd))
+        if not f: return ""
+        return f.read() if int(length) < 0 else f.read(int(length))
 
-    def _intrinsic_close(self, fd):
+    @staticmethod
+    def _measure(x: Any) -> int:
+        return len(x) if hasattr(x, '__len__') else 0
+
+    @staticmethod
+    def _append(lst: List, item: Any):
+        if isinstance(lst, list): lst.append(item)
+        return lst
+
+    @staticmethod
+    def _extract(lst: List):
+        return lst.pop() if isinstance(lst, list) and lst else None
+
+    @staticmethod
+    def _purge(lst: List):
+        if isinstance(lst, list): lst.clear()
+
+# ==========================================
+# 4. The Interpreter (AST Visitor)
+# ==========================================
+
+class LogosInterpreter(Interpreter):
+    def __init__(self, base_path: Optional[str] = None):
+        self.base_path = os.path.abspath(base_path or os.getcwd())
+        
+        # Helpers
+        self.scope = ScopeManager()
+        self.ffi = FFIManager()
+        self.stdlib = StdLib(self.base_path)
+        
+        # State
+        self.stdlib.register_into(self.scope)
+        self._imported_files: Set[str] = set()
+        self._recursion_depth = 0
+        self._max_recursion = 1000
+
+        # Validators
+        self._re_icon = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
+        self._re_func = re.compile(r"^[a-z][a-z0-9_]*$")
+
+    # --- Root Statements ---
+    
+    def proclaim(self, tree):
+        val = self.visit(tree.children[0])
+        prefix = "Verily" if val is True else "Nay" if val is False else str(val)
+        print(f"☩ {prefix}")
+
+    def inscribe(self, tree):
+        name = str(tree.children[0])
+        expr_idx = 2 if len(tree.children) == 3 else 1
+        val = self.visit(tree.children[expr_idx])
+        self.scope.set(name, val)
+        return val
+
+    def amend(self, tree):
+        target_node, value_node = tree.children
+        value = self.visit(value_node)
+        self._perform_mutation(target_node, value)
+
+    def expr_stmt(self, tree):
+        return self.visit(tree.children[0])
+
+    # --- Flow Control ---
+
+    def block(self, tree):
+        result = None
+        for stmt in tree.children:
+            result = self.visit(stmt)
+        return result
+
+    def discernment(self, tree):
+        condition, then_block, else_block = tree.children
+        if self.visit(condition):
+            return self.visit(then_block)
+        return self.visit(else_block)
+
+    def chant(self, tree):
+        condition, body = tree.children
+        while self.visit(condition):
+            self.visit(body)
+
+    def vigil(self, tree):
+        try_blk, err_var, catch_blk = tree.children
         try:
-            fd_int = int(fd)
-            f = self._fds.pop(fd_int, None)
-            if f is not None:
-                f.close()
-        except Exception:
-            return None
+            return self.visit(try_blk)
+        except ReturnSignal:
+            raise
+        except Exception as e:
+            self.scope.set(str(err_var), str(e))
+            return self.visit(catch_blk)
+
+    def offer(self, tree):
+        raise ReturnSignal(self.visit(tree.children[0]))
+
+    def silence(self, tree):
+        return None
+
+    # --- Functions & Traditions ---
+
+    def tradition(self, tree):
+        rel_path = str(tree.children[0])[1:-1]
+        path = os.path.abspath(os.path.join(self.base_path, rel_path))
+        
+        if path in self._imported_files: return
+        self._imported_files.add(path)
+        
+        if not os.path.exists(path):
+            raise LogosError(f"Schism: Tradition not found: {path}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(f.read())
+            self.visit(tree)
+
+    def mystery_def(self, tree):
+        name = str(tree.children[0])
+        if not self._re_func.fullmatch(name):
+            raise LogosError(f"Canon Error: Mystery name '{name}' must be snake_case.")
+        
+        # Parse params (index 1 if present)
+        idx = 1
+        params = []
+        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
+            params = [str(p.children[0]) for p in tree.children[idx].children]
+            idx += 1
+        
+        # Skip return type hint if present
+        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
+            idx += 1
+            
+        body = tree.children[idx]
+        self.scope.register_builtin(name, UserFunction(name, params, body))
 
     def apocrypha(self, tree):
-        lib_name = str(tree.children[0])[1:-1]
+        lib_str = str(tree.children[0])[1:-1]
         func_name = str(tree.children[1])
-
+        
+        # Extract arg types
         idx = 2
-        arg_type_names: list[str] = []
-        if idx < len(tree.children) and getattr(tree.children[idx], "data", None) == "params":
+        arg_types = []
+        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
             for p in tree.children[idx].children:
-                # param: NAME (":" NAME)?
-                if len(p.children) >= 2:
-                    arg_type_names.append(str(p.children[1]))
-                else:
-                    arg_type_names.append("Float")
+                arg_types.append(str(p.children[1]) if len(p.children) > 1 else "Float")
             idx += 1
+            
+        # Extract return type
+        ret_type = "Float"
+        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
+            ret_type = str(tree.children[idx])
 
-        return_type_name = "Float"
-        if idx < len(tree.children) and getattr(tree.children[idx], "type", None) == "NAME":
-            return_type_name = str(tree.children[idx])
-
-        lib_path = self._platform_library_filename(lib_name)
-
-        def _ctype_for(type_name: str) -> object:
-            t = str(type_name)
-            if t in ("HolyFloat", "Float", "Double"):
-                return ctypes.c_double
-            if t in ("HolyInt", "Int"):
-                return ctypes.c_longlong
-            if t in ("Bool", "Verily", "Nay"):
-                return ctypes.c_bool
-            if t in ("Text", "String"):
-                return ctypes.c_char_p
-            # Default: preserve old behavior.
-            return ctypes.c_double
-
-        try:
-            lib = self._libs.get(lib_path)
-            if lib is None:
-                lib = ctypes.CDLL(lib_path)
-                self._libs[lib_path] = lib
-
-            func = getattr(lib, func_name)
-            restype = _ctype_for(return_type_name)
-            argtypes = [_ctype_for(t) for t in arg_type_names]
-            func.restype = restype
-            if argtypes:
-                func.argtypes = argtypes
-
-            self._globals[func_name] = ForeignFunction(func=func, restype=restype, argtypes=argtypes)
-            print(f"[System] Apocrypha bound: {lib_path}::{func_name}")
-        except Exception as e:
-            print(f"[Warning] Could not link {lib_path}: {e}")
+        func_def = self.ffi.bind_function(lib_str, func_name, arg_types, ret_type)
+        self.scope.register_builtin(func_name, func_def)
 
     def call(self, tree):
         func_name = str(tree.children[0])
         args_node = tree.children[1] if len(tree.children) > 1 else None
+        args = [self.visit(c) for c in args_node.children] if args_node else []
 
-        args: list[object] = []
-        if args_node is not None:
-            # args is a Tree("args", ...)
-            for child in args_node.children:
-                args.append(self.visit(child))
+        spirit = self.scope.get(func_name)
 
-        callee = self._resolve_name(func_name)
+        if self._recursion_depth > self._max_recursion:
+            raise LogosError("Pride: Recursion depth exceeded.")
 
-        if isinstance(callee, UserFunction):
-            return self._call_user_function(callee, args)
-
-        if callable(callee):
-            if self._call_depth >= self._max_depth:
-                raise Exception("Pride: Recursion depth exceeded. Humility is required.")
-            self._call_depth += 1
-            try:
-                return callee(*args)
-            finally:
-                self._call_depth -= 1
-
-        if isinstance(callee, ForeignFunction):
-            def _marshal(a: object, ct: object) -> object:
-                if ct is ctypes.c_double:
-                    if isinstance(a, (int, float)):
-                        return ctypes.c_double(float(a))
-                    raise Exception(f"Heresy: Expected Float but got {type(a)}")
-                if ct is ctypes.c_longlong:
-                    if isinstance(a, (int, float)):
-                        return ctypes.c_longlong(int(a))
-                    raise Exception(f"Heresy: Expected Int but got {type(a)}")
-                if ct is ctypes.c_bool:
-                    if isinstance(a, bool):
-                        return ctypes.c_bool(bool(a))
-                    if isinstance(a, (int, float)):
-                        return ctypes.c_bool(bool(a))
-                    raise Exception(f"Heresy: Expected Bool but got {type(a)}")
-                if ct is ctypes.c_char_p:
-                    return ctypes.c_char_p(str(a).encode("utf-8"))
-                # Default: numeric float.
-                if isinstance(a, (int, float)):
-                    return ctypes.c_double(float(a))
-                raise Exception(f"Heresy: Foreign arguments must be numeric (got {type(a)})")
-
-            c_args: list[object] = []
-            if callee.argtypes:
-                if len(args) != len(callee.argtypes):
-                    raise Exception(
-                        f"Invocation Error: Foreign mystery expects {len(callee.argtypes)} args but got {len(args)}"
-                    )
-                for a, ct in zip(args, callee.argtypes, strict=True):
-                    c_args.append(_marshal(a, ct))
-            else:
-                # Back-compat: all numeric doubles.
-                for a in args:
-                    c_args.append(_marshal(a, ctypes.c_double))
-            if self._call_depth >= self._max_depth:
-                raise Exception("Pride: Recursion depth exceeded. Humility is required.")
-            self._call_depth += 1
-            try:
-                return callee.func(*c_args)
-            finally:
-                self._call_depth -= 1
-
-        raise Exception(f"Anathema: Unknown mystery '{func_name}'")
-
-    def _resolve_name(self, name: str) -> object:
-        for frame in reversed(self._stack):
-            if name in frame:
-                return frame[name]
-        if name in self._globals:
-            return self._globals[name]
-        if name in self._functions:
-            return self._functions[name]
-        raise Exception(f"Anathema: Unknown spirit '{name}'")
-
-    def _set_var(self, name: str, value: object) -> None:
-        # Best-effort dynamic scoping semantics:
-        # If the symbol already exists in any active frame, update it there.
-        # Otherwise, create a new binding in the current frame (or globals).
-        for frame in reversed(self._stack):
-            if name in frame:
-                frame[name] = value
-                return
-        if name in self._globals:
-            self._globals[name] = value
-            return
-        if self._stack:
-            self._stack[-1][name] = value
-            return
-        self._globals[name] = value
-
-    def _call_user_function(self, fn: UserFunction, args: list[object]) -> object:
-        if len(args) != len(fn.params):
-            raise Exception(f"Invocation Error: {fn.name} expects {len(fn.params)} args but got {len(args)}")
-
-        if self._call_depth >= self._max_depth:
-            raise Exception("Pride: Recursion depth exceeded. Humility is required.")
-
-        self._call_depth += 1
-
-        frame: dict[str, object] = {}
-        for p, v in zip(fn.params, args, strict=True):
-            frame[p] = v
-
-        self._stack.append(frame)
+        self._recursion_depth += 1
         try:
-            try:
-                result = self.visit(fn.body)
-                return result
-            except _ReturnSignal as r:
-                return r.value
+            if isinstance(spirit, UserFunction):
+                return self._invoke_user_function(spirit, args)
+            elif isinstance(spirit, ForeignFunction):
+                return self._invoke_foreign_function(spirit, args)
+            elif callable(spirit):
+                return spirit(*args)
+            else:
+                raise LogosError(f"Anathema: '{func_name}' is not callable.")
         finally:
-            self._stack.pop()
-            self._call_depth -= 1
+            self._recursion_depth -= 1
 
-    def _intrinsic_measure(self, x):
-        if x is None:
-            return 0
-        if isinstance(x, (str, list, dict)):
-            return len(x)
-        return 0
+    def _invoke_user_function(self, func: UserFunction, args: List[Any]):
+        if len(args) != len(func.params):
+            raise LogosError(f"Invocation Error: {func.name} expects {len(func.params)} args.")
+        
+        self.scope.push_frame(dict(zip(func.params, args)))
+        try:
+            return self.visit(func.body)
+        except ReturnSignal as s:
+            return s.value
+        finally:
+            self.scope.pop_frame()
 
-    def _intrinsic_append(self, xs, item):
-        if not isinstance(xs, list):
-            raise Exception(f"Schism: append expects a Procession (list), got {type(xs)}")
-        xs.append(item)
-        return xs
+    def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]):
+        # If the apocrypha declaration provided arg types, enforce arity.
+        if func.argtypes and len(args) != len(func.argtypes):
+            raise LogosError(f"Invocation Error: Foreign function expects {len(func.argtypes)} args.")
 
-    def _intrinsic_adorn(self, lst, item):
-        if isinstance(lst, list):
-            lst.append(item)
-            return None
-        raise Exception(f"Schism: adorn expects a Procession (list), got {type(lst)}")
+        # If arg types were omitted in the declaration, infer them from the call site.
+        if not func.argtypes and args:
+            inferred_argtypes = [self.ffi.infer_ctype_from_value(a) for a in args]
+            func.func.argtypes = inferred_argtypes
+            inferred_def = ForeignFunction(func.func, func.restype, inferred_argtypes)
+            c_args = self.ffi.marshal_args(args, inferred_def)
+            return func.func(*c_args)
 
-    def _intrinsic_extract(self, lst):
-        if isinstance(lst, list) and lst:
-            return lst.pop()
+        c_args = self.ffi.marshal_args(args, func)
+        return func.func(*c_args)
+
+    # --- Structures (Icons) ---
+
+    def icon_def(self, tree):
+        name = str(tree.children[0])
+        if not self._re_icon.fullmatch(name):
+            raise LogosError(f"Canon Error: Icon name '{name}' must be Capitalized.")
+        # We don't strictly enforce field definition at runtime in this dynamic implementation,
+        # but we could store it in scope if needed for validation.
+        pass
+
+    def write_icon(self, tree):
+        name = str(tree.children[0])
+        assigns = self.visit(tree.children[1]) if len(tree.children) > 1 else []
+        obj = {"__icon__": name}
+        obj.update(dict(assigns))
+        return obj
+
+    def assign_list(self, tree):
+        return [self.visit(c) for c in tree.children]
+    
+    def assign(self, tree):
+        return (str(tree.children[0]), self.visit(tree.children[1]))
+
+    # --- Data Access & Mutation ---
+
+    def _perform_mutation(self, node, value):
+        rule = getattr(node, "data", None)
+        
+        if rule == "mut_var":
+            self.scope.set(str(node.children[0]), value)
+        elif rule == "mut_attr":
+            container = self._evaluate_mutable_target(node.children[0])
+            name = str(node.children[1])
+            if isinstance(container, dict): container[name] = value
+            else: setattr(container, name, value)
+        elif rule == "mut_item":
+            container = self._evaluate_mutable_target(node.children[0])
+            idx = self.visit(node.children[1])
+            try:
+                container[int(idx) if isinstance(container, list) else idx] = value
+            except (IndexError, KeyError) as e:
+                raise LogosError(f"Anathema: Invalid mutation access: {e}")
+        else:
+            raise LogosError("Schism: Invalid mutation target.")
+
+    def _evaluate_mutable_target(self, node):
+        # Recursively resolve the object being mutated
+        rule = getattr(node, "data", None)
+        if rule == "mut_var": return self.scope.get(str(node.children[0]))
+        if rule == "mut_attr":
+            obj = self._evaluate_mutable_target(node.children[0])
+            return obj.get(str(node.children[1])) if isinstance(obj, dict) else getattr(obj, str(node.children[1]))
+        if rule == "mut_item":
+            obj = self._evaluate_mutable_target(node.children[0])
+            idx = self.visit(node.children[1])
+            return obj[int(idx)] if isinstance(obj, list) else obj[idx]
+        return self.visit(node)
+
+    def get_attr(self, tree):
+        obj = self.visit(tree.children[0])
+        name = str(tree.children[1])
+        return obj.get(name) if isinstance(obj, dict) else getattr(obj, name)
+
+    def get_item(self, tree):
+        obj = self.visit(tree.children[0])
+        idx = self.visit(tree.children[1])
+        try:
+            return obj[int(idx)] if isinstance(obj, (list, str)) else obj[idx]
+        except (IndexError, KeyError):
+            raise LogosError(f"Anathema: Index {idx} out of bounds.")
+
+    # --- Expressions & Atoms ---
+
+    def var(self, tree):
+        return self.scope.get(str(tree.children[0]))
+
+    def number(self, tree):
+        s = str(tree.children[0])
+        return float(s) if "." in s else int(s)
+
+    def string(self, tree):
+        return str(tree.children[0])[1:-1].replace("\\n", "\n")
+    
+    def procession(self, tree):
+        return [self.visit(c) for c in tree.children]
+
+    def verily(self, _): return True
+    def nay(self, _): return False
+    
+    def add(self, t): return self.visit(t.children[0]) + self.visit(t.children[1])
+    def sub(self, t): return self.visit(t.children[0]) - self.visit(t.children[1])
+    def mul(self, t): return self.visit(t.children[0]) * self.visit(t.children[1])
+    def div(self, t): return self.visit(t.children[0]) / self.visit(t.children[1])
+    def neg(self, t): return -self.visit(t.children[0])
+    
+    def eq(self, t): return self.visit(t.children[0]) == self.visit(t.children[1])
+    def ne(self, t): return self.visit(t.children[0]) != self.visit(t.children[1])
+    def lt(self, t): return self.visit(t.children[0]) < self.visit(t.children[1])
+    def gt(self, t): return self.visit(t.children[0]) > self.visit(t.children[1])
+    def le(self, t): return self.visit(t.children[0]) <= self.visit(t.children[1])
+    def ge(self, t): return self.visit(t.children[0]) >= self.visit(t.children[1])
+
+    def transfigure(self, tree):
+        val = self.visit(tree.children[0])
+        target_type = str(tree.children[1])
+        if target_type in ("HolyInt", "Int"): return int(val)
+        if target_type in ("HolyFloat", "Float"): return float(val)
+        if target_type in ("Text", "String"): return str(val)
+        return val
+
+    def supplicate(self, tree):
+        return input(str(self.visit(tree.children[0])))
+
+    def contemplation(self, tree):
+        target = self.visit(tree.children[0])
+        for case in tree.children[1:]:
+            pattern_node, body_node = case.children
+            pattern = self.visit(pattern_node)
+            if pattern == "__WILDCARD__" or target == pattern:
+                return self.visit(body_node)
         return None
 
-    def _intrinsic_purge(self, lst):
-        if isinstance(lst, list):
-            lst.clear()
-            return None
-        raise Exception(f"Schism: purge expects a Procession (list), got {type(lst)}")
+    def wildcard(self, _): return "__WILDCARD__"
+    def case_clause(self, tree): return tree # Handled in contemplation
+    def atom(self, tree): return self.visit(tree.children[0]) if tree.children else None
 
 
-def main(argv: list[str]) -> int:
-    soul = LogosInterpreter()
+# ==========================================
+# 5. Entry Point & Interface
+# ==========================================
 
-    # CASE 1: The Interactive Confessional (No args)
-    if len(argv) < 2:
-        run_confessional(soul)
-        return 0
-
-    # CASE 2: The Liturgy (File execution)
-    entry_path = os.path.abspath(argv[1])
-    base_dir = os.path.dirname(entry_path)
-    soul.base_path = base_dir
-
-    with open(entry_path, "r", encoding="utf-8") as f:
-        source = f.read()
-
-    try:
-        parser = Lark(GRAMMAR, parser="lalr")
-        tree = parser.parse(source)
-        soul.visit(tree)
-
-        # If an entrypoint exists, run it.
-        if "main" in soul._functions:
-            soul._call_user_function(soul._functions["main"], [])
-    except Exception as e:
-        print(f"☨ FATAL ERROR ☨\nThe liturgy could not be completed: {e}")
-        return 1
-
-    return 0
-
-
-def run_confessional(soul: LogosInterpreter):
-    print("☩ Logos Interactive Confessional v1.0 ☩")
-    print("☩ Type 'silence;' to sit in quietude, or 'depart(0);' to leave.")
-
-    # Execute one statement at a time.
-    repl_parser = Lark(GRAMMAR, parser="lalr", start="statement")
-
+def run_repl(interpreter: LogosInterpreter):
+    print("☩ Logos Interactive Confessional v2.0 ☩")
+    print("☩ Type 'silence;' to pass, 'exit' to depart.")
+    
+    parser = Lark(LOGOS_GRAMMAR, parser="lalr", start="statement")
+    
     while True:
         try:
-            text = input(">> ")
-            if not text.strip():
-                continue
+            text = input(">> ").strip()
+            if not text: continue
+            if text in ("exit", "quit", "depart(0);"): break
 
-            if text.strip() in ("exit", "quit"):
-                break
-
-            tree = repl_parser.parse(text)
-            result = soul.visit(tree)
+            tree = parser.parse(text)
+            result = interpreter.visit(tree)
             if result is not None:
                 print(f"=> {result}")
 
-        except _ReturnSignal as r:
+        except ReturnSignal as r:
             print(f"=> {r.value}")
-        except SystemExit:
-            break
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
+        except (LogosError, Exception) as e:
             print(f"Anathema: {e}")
 
+def main():
+    interpreter = LogosInterpreter()
+
+    if len(sys.argv) < 2:
+        run_repl(interpreter)
+        return
+
+    entry_path = os.path.abspath(sys.argv[1])
+    interpreter.base_path = os.path.dirname(entry_path)
+    interpreter.stdlib.base_path = interpreter.base_path # Sync paths
+
+    try:
+        with open(entry_path, "r", encoding="utf-8") as f:
+            source = f.read()
+        
+        parser = Lark(LOGOS_GRAMMAR, parser="lalr")
+        interpreter.visit(parser.parse(source))
+
+        # Invoke main if defined
+        try:
+            main_func = interpreter.scope.get("main")
+            if isinstance(main_func, UserFunction):
+                interpreter._invoke_user_function(main_func, [])
+        except LogosError:
+            pass # No main, that's fine
+
+    except Exception as e:
+        print(f"☨ FATAL ERROR ☨\n{e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    main()
