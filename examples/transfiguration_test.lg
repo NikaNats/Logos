@@ -1,0 +1,10 @@
+# Link the C math library (msvcrt on Windows, m on Linux)
+foreign "msvcrt" service cos();
+
+gift counter = 0;
+
+cycle counter < 3 {
+    gift val = cos(counter);
+    behold val;
+    gift counter = counter + 1;
+} amen

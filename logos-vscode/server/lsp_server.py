@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 
@@ -46,25 +47,28 @@ except Exception as e:
 SERVER = LanguageServer("logos-server", "v0.1")
 
 
-def _load_trinity_logos_dir() -> str:
+def _repo_root() -> str:
     # Extension dev layout: <repo>/logos-vscode/server/lsp_server.py
-    # We want <repo>/logos for compiler.py + logos.lark.
-    repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    logos_dir = os.path.join(repo_root, "logos")
-    return logos_dir
+    return os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
-LOGOS_DIR = _load_trinity_logos_dir()
-LARK_PATH = os.path.join(LOGOS_DIR, "logos.lark")
+REPO_ROOT = _repo_root()
+sys.path.insert(0, REPO_ROOT)
 
-with open(LARK_PATH, "r", encoding="utf-8") as f:
-    GRAMMAR = f.read()
 
-PARSER = Lark(GRAMMAR, parser="lalr", propagate_positions=True)
+def _load_grammar() -> str:
+    # In the Python-only transfiguration, the canonical grammar lives in <repo>/logos.py.
+    try:
+        mod = importlib.import_module("logos")
+        grammar = getattr(mod, "GRAMMAR", None)
+        if not isinstance(grammar, str) or not grammar.strip():
+            raise RuntimeError("logos.GRAMMAR is missing or empty")
+        return grammar
+    except Exception as e:
+        raise RuntimeError(f"Failed to load grammar from logos.py: {e}")
 
-# Import compiler pieces from the Trinity repo.
-sys.path.insert(0, LOGOS_DIR)
-from compiler import SynodValidator, DiakrisisEngine  # type: ignore  # noqa: E402
+
+PARSER = Lark(_load_grammar(), parser="lalr", propagate_positions=True)
 
 
 def _make_diag(line0: int, col0: int, msg: str) -> Diagnostic:
@@ -85,8 +89,6 @@ def validate(ls: LanguageServer, uri: str) -> None:
 
     try:
         tree = PARSER.parse(source)
-        SynodValidator().visit(tree)
-        DiakrisisEngine().visit(tree)
     except Exception as e:
         # Best-effort location mapping.
         line0 = getattr(e, "line", getattr(getattr(e, "meta", None), "line", 1)) - 1
