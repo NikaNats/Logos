@@ -1,0 +1,53 @@
+// numeri.lg - The Ordering of Quantities
+
+mystery abs(n) {
+    discern (n < 0) {
+        offer 0 - n;
+    } otherwise {
+        offer n;
+    } amen
+} amen
+
+mystery max(a, b) {
+    discern (a > b) {
+        offer a;
+    } otherwise {
+        offer b;
+    } amen
+} amen
+
+mystery min(a, b) {
+    discern (a < b) {
+        offer a;
+    } otherwise {
+        offer b;
+    } amen
+} amen
+
+mystery is_even(n) {
+    inscribe half = n / 2;
+    // Integer division truncation check
+    discern (half * 2 is n) {
+        offer Verily;
+    } otherwise {
+        offer Nay;
+    } amen
+} amen
+
+mystery power(base, exp) {
+    inscribe res = 1;
+    inscribe i = 0;
+    chant i < exp {
+        inscribe res = res * base;
+        inscribe i = i + 1;
+    } amen
+    offer res;
+} amen
+
+mystery factorial(n) {
+    discern (n <= 1) {
+        offer 1;
+    } otherwise {
+        offer n * factorial(n - 1);
+    } amen
+} amen

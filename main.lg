@@ -1,15 +1,46 @@
+// Import the Holy Tradition
 tradition "lib/genesis.lg";
+tradition "lib/numeri.lg";
+tradition "lib/psalms.lg";
 
-mystery main() -> Void {
-    proclaim "--- Standard Library Smoke Test ---";
+mystery main() {
+    proclaim "--- The Morning Service ---";
 
-    inscribe t0: HolyInt = now();
-    proclaim t0;
+    // 1. Using GENESIS (Time)
+    inscribe start = now();
 
-    inscribe fd = open_scroll("monastery.log", 1);
-    write_line(fd, "Service started");
-    close_scroll(fd);
+    // 2. Using NUMERI (Math)
+    inscribe x = 0 - 50;
+    inscribe dist = abs(x);
+    proclaim "Abs(-50) is:";
+    proclaim dist;
 
-    inscribe t1: HolyInt = now();
-    proclaim (t1 - t0);
+    discern (is_even(dist)) {
+        proclaim "The distance is even.";
+    } otherwise {
+        proclaim "The distance is odd.";
+    } amen
+
+    // 3. Using PSALMS (Text)
+    inscribe name = "Theophilus";
+    discern (contains(name, "Theo")) {
+        proclaim "The name contains God (Theo).";
+    } otherwise {
+        proclaim "The name is secular.";
+    } amen
+
+    // 4. Using GENESIS (File I/O)
+    proclaim "Writing to log scroll...";
+    inscribe log = open_scroll("service.log", 1);
+    write_line(log, "Service started at " + __sys_str(start));
+    write_line(log, "Math checks passed.");
+    close_scroll(log);
+
+    // 5. Benchmark
+    rest(500); // Sleep 500ms
+    inscribe duration = since(start);
+    proclaim "Service duration (ms):";
+    proclaim duration;
+
+    depart(0);
 } amen

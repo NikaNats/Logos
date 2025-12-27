@@ -1,0 +1,53 @@
+mystery main() {
+    proclaim "--- The Sacrament of Processions ---";
+
+    // 1. Creation (The Procession)
+    inscribe disciples = ["Peter", "James"];
+    proclaim "Initial Disciples:";
+    proclaim disciples;
+
+    // 2. Adornment (Appending)
+    proclaim "Calling John...";
+    adorn(disciples, "John");
+    proclaim disciples;
+
+    // 3. Amendment (Mutation in Place)
+    // "James" is at index 1. Let us rename him "James the Greater".
+    proclaim "Transfiguring James...";
+    amend disciples[1] = "James the Greater";
+
+    // 4. Station (Indexing)
+    proclaim "The second disciple is now:";
+    proclaim disciples[1];
+
+    // 5. Measurement
+    inscribe count = measure(disciples);
+    proclaim "Total count:";
+    proclaim count;
+
+    // 6. Extraction (Pop)
+    inscribe last = extract(disciples);
+    proclaim "Sent forth (removed):";
+    proclaim last;
+    proclaim "Remaining:";
+    proclaim disciples;
+
+    // 7. Icon Mutation (Nested Mutation)
+    proclaim "--- The Amendment of Icons ---";
+    inscribe inventory = [
+        write Item { name="Bread", qty=5 },
+        write Item { name="Fish", qty=2 }
+    ];
+
+    // Mutate the quantity of the first item (Bread)
+    // Access: inventory[0].qty
+    amend inventory[0].qty = 5000;
+
+    proclaim "Miracle performed on Bread:";
+    proclaim inventory[0].qty;
+} amen
+
+icon Item {
+    name: Text;
+    qty: HolyInt;
+} amen

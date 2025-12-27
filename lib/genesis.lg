@@ -1,38 +1,62 @@
-# The Book of Genesis
-# Standard Library for LOGOS v0.2 (Python Architecture)
+// genesis.lg - The Foundation of the World
+// Handles Time, System, and File I/O
 
-# --- SYSTEM INTRINSICS WRAPPERS ---
-
-mystery open_scroll(path: Text, mode: HolyInt) {
-    # __sys_open is defined in logos.py
-    inscribe fd = __sys_open(path, mode);
-    offer fd;
-} amen
-
-mystery close_scroll(fd: HolyInt) {
-    __sys_close(fd);
-} amen
-
-mystery write_line(fd: HolyInt, txt: Text) {
-    inscribe ok = __sys_write(fd, (txt + "\n"));
-    offer ok;
-} amen
-
-mystery read_all(fd: HolyInt) {
-    # -1 tells Python to read until EOF
-    offer __sys_read(fd, -1);
-} amen
+// --- CHRONOS (Time) ---
 
 mystery now() {
+    // Returns current epoch time in milliseconds
     offer __sys_time();
 } amen
 
-mystery get_env(key: Text) {
-    offer __sys_env(key);
+mystery rest(ms) {
+    // Pauses execution for milliseconds
+    __sys_sleep(ms);
 } amen
 
-mystery sleep(ms: HolyInt) {
-    # We don't have a sleep intrinsic in logos.py yet,
-    # but normally this would call __sys_sleep
-    silence;
+mystery since(start_time) {
+    inscribe current = __sys_time();
+    offer current - start_time;
+} amen
+
+// --- EXODUS (System) ---
+
+mystery depart(code) {
+    // Exits the program with a status code
+    __sys_exit(code);
+} amen
+
+mystery get_env(key, default) {
+    inscribe val = __sys_env(key);
+    discern (measure(val) is 0) {
+        offer default;
+    } otherwise {
+        offer val;
+    } amen
+} amen
+
+// --- SCROLLS (File I/O) ---
+// Modes: 0=Read, 1=Write, 2=Append
+
+mystery open_scroll(path, mode) {
+    offer __sys_open(path, mode);
+} amen
+
+mystery close_scroll(fd) {
+    __sys_close(fd);
+} amen
+
+mystery write_line(fd, text) {
+    inscribe newline = "\n";
+    __sys_write(fd, text);
+    offer __sys_write(fd, newline);
+} amen
+
+mystery read_passage(fd, length) {
+    // Reads specific characters
+    offer __sys_read(fd, length);
+} amen
+
+mystery read_all(fd) {
+    // Reads until the end (-1)
+    offer __sys_read(fd, -1);
 } amen

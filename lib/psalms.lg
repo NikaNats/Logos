@@ -1,0 +1,52 @@
+// psalms.lg - The Manipulation of Text
+
+mystery is_empty(text) {
+    discern (measure(text) is 0) {
+        offer Verily;
+    } otherwise {
+        offer Nay;
+    } amen
+} amen
+
+mystery first_char(text) {
+    discern (measure(text) > 0) {
+        offer passage(text, 0, 1);
+    } otherwise {
+        offer "";
+    } amen
+} amen
+
+mystery concat_procession(list) {
+    // Joins a procession of strings into one text
+    inscribe res = "";
+    inscribe i = 0;
+    inscribe len = measure(list);
+
+    chant i < len {
+        inscribe item = list[i];
+        inscribe res = res + item; // Polymorphic add
+        inscribe i = i + 1;
+    } amen
+    offer res;
+} amen
+
+mystery contains(haystack, needle) {
+    // A naive search implementation
+    inscribe h_len = measure(haystack);
+    inscribe n_len = measure(needle);
+    inscribe found = Nay;
+    inscribe i = 0;
+    inscribe stop = h_len - n_len + 1;
+
+    chant i < stop {
+        inscribe sub = passage(haystack, i, n_len);
+        discern (sub is needle) {
+            inscribe found = Verily;
+            // Break loop manually by setting i to end
+            inscribe i = stop;
+        } otherwise {
+            inscribe i = i + 1;
+        } amen
+    } amen
+    offer found;
+} amen

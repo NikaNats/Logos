@@ -1,0 +1,42 @@
+icon Saint {
+    name: Text;
+    miracles: HolyInt;
+} amen
+
+mystery recursive_chant(n) {
+    // Tests Recursion Limit
+    proclaim n;
+    discern (n > 0) {
+        recursive_chant(n - 1);
+    } otherwise {
+        silence;
+    } amen
+} amen
+
+mystery main() {
+    proclaim "--- The Canonization Test ---";
+
+    // 1. Processions (Lists)
+    inscribe apostles = ["Peter", "Paul", "Andrew"];
+    proclaim "The First Apostle:";
+    proclaim apostles[0];
+
+    // 2. Polymorphism (String Concatenation)
+    inscribe prefix = "Saint ";
+    proclaim prefix + apostles[1];
+
+    // 3. Icons and Mutation
+    inscribe st_nicholas = write Saint {
+        name = "Nicholas",
+        miracles = 3
+    };
+
+    // 4. Measuring
+    inscribe count = measure(apostles);
+    proclaim "Count of Apostles:";
+    proclaim count;
+
+    // 5. Recursion
+    proclaim "Chanting backwards:";
+    recursive_chant(3);
+} amen

@@ -11,34 +11,38 @@ from lark.visitors import Interpreter
 GRAMMAR = r"""
     start: statement*
 
-    // --- LITURGICAL STATEMENTS ---
+    // --- LITURGY (Statements) ---
+    // Creation
     statement: "proclaim" expr ";"                                   -> proclaim
              | "inscribe" NAME (":" NAME)? "=" expr ";"              -> inscribe
+
+             // Mutation (NEW: For lists, objects, and re-assignment)
+             | "amend" mutable "=" expr ";"                          -> amend
+
+             // Flow
              | "apocrypha" STRING "mystery" NAME "(" ")" ";"         -> apocrypha
-             | "tradition" STRING ";"                                 -> tradition
-             | "chant" expr block "amen"                               -> chant
-             | "discern" "(" expr ")" block "otherwise" block "amen"     -> discernment
-             | "vigil" block "confess" NAME block "amen"                 -> vigil
-             | "mystery" NAME "(" params? ")" ("->" NAME)? block "amen"   -> mystery_def
-             | "icon" NAME "{" field_decl* "}" "amen"                    -> icon_def
-             | "contemplate" "(" expr ")" "{" case_clause+ "}" "amen"     -> contemplation
-             | "offer" expr ";"                                       -> offer
-             | "silence" ";"                                          -> silence
-             | expr ";"                                                -> expr_stmt
+             | "tradition" STRING ";"                                -> tradition
+             | "chant" expr block "amen"                             -> chant
+             | "discern" "(" expr ")" block "otherwise" block "amen" -> discernment
+             | "vigil" block "confess" NAME block "amen"             -> vigil
+             | "mystery" NAME "(" params? ")" ("->" NAME)? block "amen" -> mystery_def
+             | "icon" NAME "{" field_decl* "}" "amen"                -> icon_def
+             | "contemplate" "(" expr ")" "{" case_clause+ "}" "amen" -> contemplation
+             | "offer" expr ";"                                      -> offer
+             | "silence" ";"                                         -> silence
+             | expr ";"                                              -> expr_stmt
 
     block: "{" statement* "}"                                        -> block
 
+    // --- STRUCTURES ---
     field_decl: NAME ":" NAME ";"
-
     params: param ("," param)*
     param: NAME (":" NAME)?
 
-    // --- CONTEMPLATION (Pattern Matching) ---
+    // --- CONTEMPLATION ---
     case_clause: "aspect" pattern ":" case_body
-    ?case_body: block
-              | statement
-    ?pattern: "_"                                                    -> wildcard
-            | expr
+    ?case_body: block | statement
+    ?pattern: "_" -> wildcard | expr
 
     // --- EXPRESSIONS & DOGMA ---
     ?expr: equality
@@ -63,14 +67,22 @@ GRAMMAR = r"""
 
     ?unary: "-" unary                          -> neg
           | call
-          | "transfigure" expr "into" NAME      -> transfigure
+          | "transfigure" expr "into" NAME     -> transfigure
           | "supplicate" expr                  -> supplicate
 
     ?call: access
          | NAME "(" args? ")" -> call
 
-    ?access: atom
-           | access "." NAME -> get_attr
+        // --- ACCESS & MUTATION ---
+        // 'access' is for reading (expressions)
+        ?access: atom
+            | access "." NAME        -> get_attr
+            | access "[" expr "]"    -> get_item
+
+        // 'mutable' is for writing (assignments)
+        ?mutable: NAME                  -> mut_var
+             | mutable "." NAME      -> mut_attr
+             | mutable "[" expr "]"  -> mut_item
 
     args: expr ("," expr)*
 
@@ -78,6 +90,7 @@ GRAMMAR = r"""
         | STRING  -> string
         | "Verily" -> verily
         | "Nay"    -> nay
+        | "[" expr ("," expr)* "]"          -> procession  // <--- NEW: Lists
         | "write" NAME "{" assign_list? "}" -> write_icon
         | NAME    -> var
         | "(" expr ")"
@@ -117,6 +130,11 @@ class _ReturnSignal(Exception):
 
 class LogosInterpreter(Interpreter):
     def __init__(self, base_path: str | None = None):
+        import re
+
+        self._re_icon_name = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
+        self._re_mystery_name = re.compile(r"^[a-z][a-z0-9_]*$")
+
         self._globals: dict[str, object] = {}
         self._stack: list[dict[str, object]] = []
         self._libs: dict[str, ctypes.CDLL] = {}
@@ -126,18 +144,42 @@ class LogosInterpreter(Interpreter):
 
         self.base_path = os.path.abspath(base_path or os.getcwd())
 
+        # --- THE LIMIT OF HUMILITY ---
+        self._call_depth = 0
+        self._max_depth = 1000
+
         # --- PRE-ORDAINED SPIRITS (System Intrinsics) ---
         self._fds: dict[int, object] = {}
         self._next_fd = 3
 
-        self._globals["__sys_time"] = lambda: int(time.time() * 1000)
-        self._globals["__sys_env"] = lambda k: os.environ.get(str(k), "")
+        # Time and Environment
+        self._globals["now"] = lambda: int(time.time() * 1000)
+        self._globals["env"] = lambda k: os.environ.get(str(k), "")
+        # Back-compat names
+        self._globals["__sys_time"] = self._globals["now"]
+        self._globals["__sys_env"] = self._globals["env"]
+
         self._globals["__sys_open"] = self._intrinsic_open
         self._globals["__sys_write"] = self._intrinsic_write
         self._globals["__sys_read"] = self._intrinsic_read
         self._globals["__sys_close"] = self._intrinsic_close
-        self._globals["measure"] = lambda x: len(str(x))
+
+        # Measurements / list handling
+        self._globals["measure"] = self._intrinsic_measure
+        self._globals["append"] = self._intrinsic_append
+        self._globals["adorn"] = self._intrinsic_adorn
+        self._globals["extract"] = self._intrinsic_extract
+        self._globals["purge"] = self._intrinsic_purge
         self._globals["passage"] = lambda s, start, l: str(s)[int(start) : int(start) + int(l)]
+
+        # 1. System Control
+        self._globals["__sys_sleep"] = lambda ms: time.sleep(float(ms) / 1000.0)
+        self._globals["__sys_exit"] = lambda code: sys.exit(int(code))
+
+        # 2. String/Type Sparks
+        self._globals["__sys_ord"] = lambda s: ord(str(s)[0]) if str(s) else 0
+        self._globals["__sys_chr"] = lambda n: chr(int(n))
+        self._globals["__sys_str"] = lambda x: str(x)
 
     def proclaim(self, tree):
         val = self.visit(tree.children[0])
@@ -159,6 +201,8 @@ class LogosInterpreter(Interpreter):
 
     def var(self, tree):
         name = str(tree.children[0])
+        if name in ("None", "Void"):
+            return None
         for frame in reversed(self._stack):
             if name in frame:
                 return frame[name]
@@ -187,7 +231,14 @@ class LogosInterpreter(Interpreter):
         return False
 
     def add(self, tree):
-        return self.visit(tree.children[0]) + self.visit(tree.children[1])
+        left = self.visit(tree.children[0])
+        right = self.visit(tree.children[1])
+
+        if isinstance(left, str) or isinstance(right, str):
+            return str(left) + str(right)
+        if isinstance(left, list) and isinstance(right, list):
+            return left + right
+        return left + right
 
     def sub(self, tree):
         return self.visit(tree.children[0]) - self.visit(tree.children[1])
@@ -283,6 +334,93 @@ class LogosInterpreter(Interpreter):
             return obj.get(name)
         return getattr(obj, name)
 
+    def procession(self, tree):
+        return [self.visit(child) for child in tree.children]
+
+    def get_item(self, tree):
+        container = self.visit(tree.children[0])
+        idx_val = self.visit(tree.children[1])
+
+        try:
+            if isinstance(container, list):
+                return container[int(idx_val)]
+            if isinstance(container, str):
+                return container[int(idx_val)]
+            if isinstance(container, dict):
+                return container[idx_val]
+            if hasattr(container, "__getitem__"):
+                return container[idx_val]
+        except Exception:
+            pass
+        raise Exception(f"Anathema: Cannot seek index {idx_val} in {type(container)}")
+
+    def amend(self, tree):
+        target_node = tree.children[0]
+        value = self.visit(tree.children[1])
+        self._perform_mutation(target_node, value)
+        return None
+
+    def _eval_mutable(self, node) -> object:
+        rule = getattr(node, "data", None)
+
+        if rule == "mut_var":
+            name = str(node.children[0])
+            return self._resolve_name(name)
+
+        if rule == "mut_item":
+            container = self._eval_mutable(node.children[0])
+            index = self.visit(node.children[1])
+            try:
+                if isinstance(container, list):
+                    return container[int(index)]
+                if isinstance(container, dict):
+                    return container[index]
+                if isinstance(container, str):
+                    return container[int(index)]
+                return container[index]
+            except Exception as e:
+                raise Exception(f"Anathema: Cannot seek index {index} in {type(container)}") from e
+
+        if rule == "mut_attr":
+            container = self._eval_mutable(node.children[0])
+            name = str(node.children[1])
+            if isinstance(container, dict):
+                return container.get(name)
+            return getattr(container, name)
+
+        # Fallback: if passed an expression accidentally, evaluate it normally.
+        return self.visit(node)
+
+    def _perform_mutation(self, node, value) -> None:
+        rule = getattr(node, "data", None)
+
+        if rule == "mut_var":
+            name = str(node.children[0])
+            self._set_var(name, value)
+            return
+
+        if rule == "mut_item":
+            container = self._eval_mutable(node.children[0])
+            index = self.visit(node.children[1])
+            if isinstance(container, list):
+                container[int(index)] = value
+                return
+            if isinstance(container, dict):
+                container[index] = value
+                return
+            raise Exception("Heresy: Cannot amend an immutable spirit.")
+
+        if rule == "mut_attr":
+            container = self._eval_mutable(node.children[0])
+            name = str(node.children[1])
+            if isinstance(container, dict):
+                container[name] = value
+                return
+            setattr(container, name, value)
+            return
+
+        raise Exception(f"Schism: Cannot amend target of type '{rule}'")
+
     def wildcard(self, tree):
         return "__WILDCARD__"
 
@@ -307,6 +445,10 @@ class LogosInterpreter(Interpreter):
 
     def icon_def(self, tree):
         name = str(tree.children[0])
+        if not self._re_icon_name.fullmatch(name):
+            raise Exception(
+                f"Canon Error: Icons must be Capitalized (e.g., Saint). Got '{name}'"
+            )
         fields: list[str] = []
         for child in tree.children[1:]:
             # field_decl: NAME ':' TYPE ';'
@@ -362,6 +504,11 @@ class LogosInterpreter(Interpreter):
         # 2: return type? (Token NAME)
         # last: block
         name = str(tree.children[0])
+
+        if not self._re_mystery_name.fullmatch(name):
+            raise Exception(
+                f"Canon Error: Mysteries must be snake_case (e.g., main, recursive_chant). Got '{name}'"
+            )
 
         idx = 1
         params: list[str] = []
@@ -481,7 +628,13 @@ class LogosInterpreter(Interpreter):
             return self._call_user_function(callee, args)
 
         if callable(callee):
-            return callee(*args)
+            if self._call_depth >= self._max_depth:
+                raise Exception("Pride: Recursion depth exceeded. Humility is required.")
+            self._call_depth += 1
+            try:
+                return callee(*args)
+            finally:
+                self._call_depth -= 1
 
         if isinstance(callee, ForeignFunction):
             c_args: list[object] = []
@@ -490,7 +643,13 @@ class LogosInterpreter(Interpreter):
                     c_args.append(ctypes.c_double(float(a)))
                 else:
                     raise Exception(f"Heresy: Foreign arguments must be numeric (got {type(a)})")
-            return callee.func(*c_args)
+            if self._call_depth >= self._max_depth:
+                raise Exception("Pride: Recursion depth exceeded. Humility is required.")
+            self._call_depth += 1
+            try:
+                return callee.func(*c_args)
+            finally:
+                self._call_depth -= 1
 
         raise Exception(f"Anathema: Unknown mystery '{func_name}'")
 
@@ -514,6 +673,11 @@ class LogosInterpreter(Interpreter):
         if len(args) != len(fn.params):
             raise Exception(f"Invocation Error: {fn.name} expects {len(fn.params)} args but got {len(args)}")
 
+        if self._call_depth >= self._max_depth:
+            raise Exception("Pride: Recursion depth exceeded. Humility is required.")
+
+        self._call_depth += 1
+
         frame: dict[str, object] = {}
         for p, v in zip(fn.params, args, strict=True):
             frame[p] = v
@@ -527,6 +691,37 @@ class LogosInterpreter(Interpreter):
                 return r.value
         finally:
             self._stack.pop()
+            self._call_depth -= 1
+
+    def _intrinsic_measure(self, x):
+        if x is None:
+            return 0
+        if isinstance(x, (str, list, dict)):
+            return len(x)
+        return 0
+
+    def _intrinsic_append(self, xs, item):
+        if not isinstance(xs, list):
+            raise Exception(f"Schism: append expects a Procession (list), got {type(xs)}")
+        xs.append(item)
+        return xs
+
+    def _intrinsic_adorn(self, lst, item):
+        if isinstance(lst, list):
+            lst.append(item)
+            return None
+        raise Exception(f"Schism: adorn expects a Procession (list), got {type(lst)}")
+
+    def _intrinsic_extract(self, lst):
+        if isinstance(lst, list) and lst:
+            return lst.pop()
+        return None
+
+    def _intrinsic_purge(self, lst):
+        if isinstance(lst, list):
+            lst.clear()
+            return None
+        raise Exception(f"Schism: purge expects a Procession (list), got {type(lst)}")
 
 
 def main(argv: list[str]) -> int:
