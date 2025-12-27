@@ -181,6 +181,11 @@ class LogosInterpreter(Interpreter):
         self._globals["__sys_chr"] = lambda n: chr(int(n))
         self._globals["__sys_str"] = lambda x: str(x)
 
+        # Expose raw CLI arguments as a Procession.
+        # sys.argv[2:] are arguments after the filename.
+        args = sys.argv[2:] if len(sys.argv) > 2 else []
+        self._globals["argv"] = list(args)
+
     def proclaim(self, tree):
         val = self.visit(tree.children[0])
         if isinstance(val, bool):
@@ -725,26 +730,65 @@ class LogosInterpreter(Interpreter):
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        print("Usage: python logos.py <file.lg>")
-        return 2
+    soul = LogosInterpreter()
 
+    # CASE 1: The Interactive Confessional (No args)
+    if len(argv) < 2:
+        run_confessional(soul)
+        return 0
+
+    # CASE 2: The Liturgy (File execution)
     entry_path = os.path.abspath(argv[1])
     base_dir = os.path.dirname(entry_path)
+    soul.base_path = base_dir
 
     with open(entry_path, "r", encoding="utf-8") as f:
         source = f.read()
 
-    parser = Lark(GRAMMAR, parser="lalr")
-    tree = parser.parse(source)
+    try:
+        parser = Lark(GRAMMAR, parser="lalr")
+        tree = parser.parse(source)
+        soul.visit(tree)
 
-    soul = LogosInterpreter(base_path=base_dir)
-    soul.visit(tree)
+        # If an entrypoint exists, run it.
+        if "main" in soul._functions:
+            soul._call_user_function(soul._functions["main"], [])
+    except Exception as e:
+        print(f"☨ FATAL ERROR ☨\nThe liturgy could not be completed: {e}")
+        return 1
 
-    # If an entrypoint exists, run it.
-    if "main" in soul._functions:
-        soul._call_user_function(soul._functions["main"], [])
     return 0
+
+
+def run_confessional(soul: LogosInterpreter):
+    print("☩ Logos Interactive Confessional v1.0 ☩")
+    print("☩ Type 'silence;' to sit in quietude, or 'depart(0);' to leave.")
+
+    # Execute one statement at a time.
+    repl_parser = Lark(GRAMMAR, parser="lalr", start="statement")
+
+    while True:
+        try:
+            text = input(">> ")
+            if not text.strip():
+                continue
+
+            if text.strip() in ("exit", "quit"):
+                break
+
+            tree = repl_parser.parse(text)
+            result = soul.visit(tree)
+            if result is not None:
+                print(f"=> {result}")
+
+        except _ReturnSignal as r:
+            print(f"=> {r.value}")
+        except SystemExit:
+            break
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Anathema: {e}")
 
 
 if __name__ == "__main__":
