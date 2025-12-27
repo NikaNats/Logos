@@ -1,79 +1,109 @@
 {
-  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "LOGOS",
-  "patterns": [
-    { "include": "#comments" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#functions" }
-  ],
-  "repository": {
-    "comments": {
-      "patterns": [
-        {
-          "name": "comment.line.double-slash.logos",
-          "match": "//.*$"
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Logos",
+    "scopeName": "source.logos",
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#constants" },
+        { "include": "#support" },
+        { "include": "#definitions" },
+        { "include": "#function-calls" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.logos",
+                    "match": "//.*$"
+                }
+            ]
         },
-        {
-          "name": "comment.block.documentation.logos",
-          "begin": "///",
-          "end": "$"
-        }
-      ]
-    },
-    "keywords": {
-      "patterns": [
-        {
-          "name": "keyword.control.logos",
-          "match": "\\b(service|ministry|essence|gift|cycle|inspect|case|amen|return|offer|behold|listen|fast|struct|try|repent|import)\\b"
+        "strings": {
+            "name": "string.quoted.double.logos",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.logos",
+                    "match": "\\\\."
+                }
+            ]
         },
-        {
-          "name": "keyword.operator.new.logos",
-          "match": "\\b(new)\\b"
+        "numbers": {
+            "name": "constant.numeric.logos",
+            "match": "\\b\\d+(\\.\\d+)?\\b"
         },
-        {
-          "name": "constant.language.boolean.logos",
-          "match": "\\b(Verily|Nay)\\b"
-        }
-      ]
-    },
-    "types": {
-      "patterns": [
-        {
-          "name": "storage.type.primitive.logos",
-          "match": "\\b(HolyInt|Text|Void|Bool|Byte|Char)\\b"
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.logos",
+                    "match": "\\b(chant|discern|otherwise|vigil|confess|amen|contemplate|aspect|silence)\\b"
+                },
+                {
+                    "name": "keyword.other.statement.logos",
+                    "match": "\\b(proclaim|inscribe|amend|offer|apocrypha|tradition|transfigure|into|supplicate|write)\\b"
+                },
+                {
+                    "name": "storage.type.logos",
+                    "match": "\\b(mystery|icon)\\b"
+                }
+            ]
         },
-        {
-          "name": "storage.type.user.logos",
-          "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b"
+        "constants": {
+            "patterns": [
+                {
+                    "name": "constant.language.boolean.true.logos",
+                    "match": "\\bVerily\\b"
+                },
+                {
+                    "name": "constant.language.boolean.false.logos",
+                    "match": "\\bNay\\b"
+                },
+                {
+                    "name": "constant.language.null.logos",
+                    "match": "\\b(Void|None)\\b"
+                }
+            ]
+        },
+        "support": {
+            "patterns": [
+                {
+                    "name": "support.type.logos",
+                    "match": "\\b(HolyInt|HolyFloat|Text|String|Bool|Procession)\\b"
+                },
+                {
+                    "name": "support.function.builtin.logos",
+                    "match": "\\b(measure|adorn|extract|purge|passage|now|abs|max|min|pow|say|say_int|ask|ask_int)\\b"
+                }
+            ]
+        },
+        "definitions": {
+            "patterns": [
+                {
+                    "match": "\\b(mystery)\\s+([a-z][a-z0-9_]*)",
+                    "captures": {
+                        "1": { "name": "storage.type.function.logos" },
+                        "2": { "name": "entity.name.function.logos" }
+                    }
+                },
+                {
+                    "match": "\\b(icon)\\s+([A-Z][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": { "name": "storage.type.class.logos" },
+                        "2": { "name": "entity.name.type.class.logos" }
+                    }
+                }
+            ]
+        },
+        "function-calls": {
+            "name": "meta.function-call.logos",
+            "match": "\\b([a-z][a-z0-9_]*)\\s*(?=\\()",
+            "captures": {
+                "1": { "name": "entity.name.function.logos" }
+            }
         }
-      ]
-    },
-    "strings": {
-      "name": "string.quoted.double.logos",
-      "begin": "\"",
-      "end": "\"",
-      "patterns": [
-        {
-          "name": "constant.character.escape.logos",
-          "match": "\\\\."
-        }
-      ]
-    },
-    "numbers": {
-      "name": "constant.numeric.logos",
-      "match": "\\b\\d+(\\.\\d+)?\\b"
-    },
-    "functions": {
-      "patterns": [
-        {
-          "name": "entity.name.function.logos",
-          "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\()"
-        }
-      ]
     }
-  },
-  "scopeName": "source.logos"
 }
