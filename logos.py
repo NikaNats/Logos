@@ -114,6 +114,13 @@ class ReturnSignal(Exception):
     def __init__(self, value: Any):
         self.value = value
 
+
+@dataclass(frozen=True)
+class TailCall:
+    """Represents a tail-position call that can be executed without growing the Python stack."""
+    func: "UserFunction"
+    args: List[Any]
+
 @dataclass
 class ForeignFunction:
     """Represents a bound C-library function."""
@@ -351,7 +358,19 @@ class LogosInterpreter(Interpreter):
         self.stdlib.register_into(self.scope)
         self._imported_files: Set[str] = set()
         self._recursion_depth = 0
-        self._max_recursion = 1000
+        self._max_recursion = int(os.environ.get("LOGOS_MAX_RECURSION", "1000"))
+
+        # Type metadata (runtime enforcement for declared annotations)
+        self._global_types: Dict[str, str] = {}
+        self._type_stack: List[Dict[str, str]] = []
+        self._icons: Dict[str, Dict[str, str]] = {}
+
+        # Keep Python's recursion limit >= our policy limit so we fail with LogosError
+        # instead of a surprise RecursionError for moderately deep programs.
+        try:
+            sys.setrecursionlimit(max(sys.getrecursionlimit(), self._max_recursion + 200))
+        except Exception:
+            pass
 
         # Validators
         self._re_icon = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
@@ -366,8 +385,14 @@ class LogosInterpreter(Interpreter):
 
     def inscribe(self, tree):
         name = str(tree.children[0])
-        expr_idx = 2 if len(tree.children) == 3 else 1
+        declared_type = str(tree.children[1]) if len(tree.children) == 3 else None
+        expr_idx = 2 if declared_type is not None else 1
         val = self.visit(tree.children[expr_idx])
+
+        if declared_type is not None:
+            self._declare_type(name, declared_type)
+
+        self._enforce_declared_type(name, val)
         self.scope.set(name, val)
         return val
 
@@ -409,7 +434,19 @@ class LogosInterpreter(Interpreter):
             return self.visit(catch_blk)
 
     def offer(self, tree):
-        raise ReturnSignal(self.visit(tree.children[0]))
+        expr = tree.children[0]
+
+        # Tail-call optimization: if the returned value is a direct mystery invocation,
+        # trampoline it without growing the Python stack.
+        if getattr(expr, "data", None) == "call":
+            func_name = str(expr.children[0])
+            args_node = expr.children[1] if len(expr.children) > 1 else None
+            args = [self.visit(c) for c in args_node.children] if args_node else []
+            spirit = self.scope.get(func_name)
+            if isinstance(spirit, UserFunction):
+                raise ReturnSignal(TailCall(spirit, args))
+
+        raise ReturnSignal(self.visit(expr))
 
     def silence(self, tree):
         return None
@@ -489,20 +526,36 @@ class LogosInterpreter(Interpreter):
                 return spirit(*args)
             else:
                 raise LogosError(f"Anathema: '{func_name}' is not callable.")
+        except RecursionError as e:
+            raise LogosError(
+                "Pride: Host recursion limit reached. Consider rewriting recursion as iteration, "
+                "or using tail calls (tail-call optimization is supported in 'offer <mystery>(...)')."
+            ) from e
         finally:
             self._recursion_depth -= 1
 
     def _invoke_user_function(self, func: UserFunction, args: List[Any]):
-        if len(args) != len(func.params):
-            raise LogosError(f"Invocation Error: {func.name} expects {len(func.params)} args.")
-        
-        self.scope.push_frame(dict(zip(func.params, args)))
-        try:
-            return self.visit(func.body)
-        except ReturnSignal as s:
-            return s.value
-        finally:
-            self.scope.pop_frame()
+        current_func = func
+        current_args = args
+        while True:
+            if len(current_args) != len(current_func.params):
+                raise LogosError(
+                    f"Invocation Error: {current_func.name} expects {len(current_func.params)} args."
+                )
+
+            self.scope.push_frame(dict(zip(current_func.params, current_args)))
+            self._type_stack.append({})
+            try:
+                return self.visit(current_func.body)
+            except ReturnSignal as s:
+                if isinstance(s.value, TailCall):
+                    current_func = s.value.func
+                    current_args = s.value.args
+                    continue
+                return s.value
+            finally:
+                self._type_stack.pop()
+                self.scope.pop_frame()
 
     def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]):
         # If the apocrypha declaration provided arg types, enforce arity.
@@ -526,15 +579,28 @@ class LogosInterpreter(Interpreter):
         name = str(tree.children[0])
         if not self._re_icon.fullmatch(name):
             raise LogosError(f"Canon Error: Icon name '{name}' must be Capitalized.")
-        # We don't strictly enforce field definition at runtime in this dynamic implementation,
-        # but we could store it in scope if needed for validation.
-        pass
+        fields: Dict[str, str] = {}
+        for decl in tree.children[1:]:
+            if getattr(decl, "data", None) != "field_decl":
+                continue
+            field_name = str(decl.children[0])
+            field_type = str(decl.children[1])
+            fields[field_name] = field_type
+
+        self._icons[name] = fields
+        return None
 
     def write_icon(self, tree):
         name = str(tree.children[0])
         assigns = self.visit(tree.children[1]) if len(tree.children) > 1 else []
         obj = {"__icon__": name}
-        obj.update(dict(assigns))
+        values = dict(assigns)
+        schema = self._icons.get(name)
+        if schema:
+            for field_name, field_type in schema.items():
+                if field_name in values:
+                    self._enforce_value_type(values[field_name], field_type, context=f"{name}.{field_name}")
+        obj.update(values)
         return obj
 
     def assign_list(self, tree):
@@ -549,11 +615,15 @@ class LogosInterpreter(Interpreter):
         rule = getattr(node, "data", None)
         
         if rule == "mut_var":
-            self.scope.set(str(node.children[0]), value)
+            name = str(node.children[0])
+            self._enforce_declared_type(name, value)
+            self.scope.set(name, value)
         elif rule == "mut_attr":
             container = self._evaluate_mutable_target(node.children[0])
             name = str(node.children[1])
-            if isinstance(container, dict): container[name] = value
+            if isinstance(container, dict):
+                self._enforce_icon_field_type(container, name, value)
+                container[name] = value
             else: setattr(container, name, value)
         elif rule == "mut_item":
             container = self._evaluate_mutable_target(node.children[0])
@@ -564,6 +634,73 @@ class LogosInterpreter(Interpreter):
                 raise LogosError(f"Anathema: Invalid mutation access: {e}")
         else:
             raise LogosError("Schism: Invalid mutation target.")
+
+    # --- Type Enforcement ---
+
+    def _declare_type(self, name: str, type_name: str) -> None:
+        # Track declared types alongside the value scopes.
+        if self._type_stack:
+            existing = self._type_stack[-1].get(name)
+            if existing is not None and existing != type_name:
+                raise LogosError(
+                    f"Canon Error: '{name}' was already declared as {existing}, cannot redeclare as {type_name}."
+                )
+            self._type_stack[-1][name] = type_name
+            return
+
+        existing = self._global_types.get(name)
+        if existing is not None and existing != type_name:
+            raise LogosError(
+                f"Canon Error: '{name}' was already declared as {existing}, cannot redeclare as {type_name}."
+            )
+        self._global_types[name] = type_name
+
+    def _lookup_declared_type(self, name: str) -> Optional[str]:
+        for frame in reversed(self._type_stack):
+            if name in frame:
+                return frame[name]
+        return self._global_types.get(name)
+
+    def _enforce_declared_type(self, name: str, value: Any) -> None:
+        declared = self._lookup_declared_type(name)
+        if declared is None:
+            return
+        self._enforce_value_type(value, declared, context=name)
+
+    def _enforce_icon_field_type(self, container: dict, field_name: str, value: Any) -> None:
+        icon_name = container.get("__icon__")
+        if not icon_name:
+            return
+        schema = self._icons.get(str(icon_name))
+        if not schema:
+            return
+        field_type = schema.get(field_name)
+        if not field_type:
+            return
+        self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
+
+    def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
+        # Keep the rules intentionally small and explicit.
+        # Users can convert using `transfigure`.
+        if type_name in ("HolyInt", "Int"):
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        elif type_name in ("HolyFloat", "Float", "Double"):
+            ok = (isinstance(value, (int, float)) and not isinstance(value, bool))
+        elif type_name in ("Bool", "Verily", "Nay"):
+            ok = isinstance(value, bool)
+        elif type_name in ("Text", "String"):
+            ok = isinstance(value, str)
+        elif type_name == "Procession":
+            ok = isinstance(value, list)
+        else:
+            # Unknown type names are accepted (they may be conceptual or for tooling).
+            return
+
+        if not ok:
+            actual = type(value).__name__
+            raise LogosError(
+                f"Canon Error: Type mismatch for '{context}': expected {type_name}, got {actual}."
+            )
 
     def _evaluate_mutable_target(self, node):
         # Recursively resolve the object being mutated
@@ -694,10 +831,11 @@ def main():
         # Invoke main if defined
         try:
             main_func = interpreter.scope.get("main")
-            if isinstance(main_func, UserFunction):
-                interpreter._invoke_user_function(main_func, [])
         except LogosError:
-            pass # No main, that's fine
+            main_func = None  # No main, that's fine
+
+        if isinstance(main_func, UserFunction):
+            interpreter._invoke_user_function(main_func, [])
 
     except Exception as e:
         print(f"☨ FATAL ERROR ☨\n{e}")

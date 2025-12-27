@@ -1,0 +1,11 @@
+// Demonstrates runtime enforcement of type annotations.
+
+mystery main() {
+    proclaim "--- Type Enforcement Test ---";
+
+    inscribe x: HolyInt = 5;
+    proclaim x;
+
+    // This should fail at runtime with a Canon Error.
+    amend x = "not an int";
+} amen

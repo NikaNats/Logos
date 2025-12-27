@@ -1,0 +1,16 @@
+// Demonstrates tail-call optimization via trampoline.
+// This should run without growing the Python stack.
+
+mystery loop(n) {
+    discern (n <= 0) {
+        offer 0;
+    } otherwise {
+        // Tail call: returned directly.
+        offer loop(n - 1);
+    } amen
+} amen
+
+mystery main() {
+    proclaim "--- TCO Test ---";
+    proclaim loop(50000);
+} amen

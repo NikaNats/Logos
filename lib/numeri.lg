@@ -45,9 +45,16 @@ mystery power(base, exp) {
 } amen
 
 mystery factorial(n) {
+    // Iterative form avoids deep recursion in the interpreter.
     discern (n <= 1) {
         offer 1;
     } otherwise {
-        offer n * factorial(n - 1);
+        inscribe res = 1;
+        inscribe i = 2;
+        chant i <= n {
+            inscribe res = res * i;
+            inscribe i = i + 1;
+        } amen
+        offer res;
     } amen
 } amen
