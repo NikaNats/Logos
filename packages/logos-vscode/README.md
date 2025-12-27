@@ -4,7 +4,7 @@ Liturgical programming language support for Logos (`.lg`) in Visual Studio Code.
 
 ## Install and test (Debug Mode)
 
-1. Open the `logos-vscode` folder in VS Code.
+1. Open the `packages/logos-vscode` folder in VS Code.
 2. Press `F5` to launch an **Extension Development Host** window.
 3. In the new window, create a file named `test.lg`.
 4. Paste your Logos code.
@@ -28,18 +28,18 @@ The professional distribution approach is to ship a bundled executable built wit
 1. Build the Windows server binary:
 
 ```powershell
-cd logos-vscode\server
+cd packages\logos-vscode\server
 ./build_server_win.ps1
 ```
 
 This produces:
 
-- `logos-vscode/server/bin/win32/logos-lang-server.exe`
+- `packages/logos-vscode/server/bin/win32/logos-lang-server.exe`
 
 2. Package the extension:
 
 ```bash
-cd logos-vscode
+cd packages/logos-vscode
 npx --yes @vscode/vsce package --allow-missing-repository
 ```
 
@@ -49,7 +49,7 @@ The VSIX will include the bundled server binary, and end users will not need Pyt
 
 ```bash
 npm install -g vsce
-cd logos-vscode
+cd packages/logos-vscode
 vsce package
 ```
 

@@ -1,7 +1,7 @@
 // Import the Holy Tradition
-tradition "lib/genesis.lg";
-tradition "lib/numeri.lg";
-tradition "lib/psalms.lg";
+tradition "../lib/genesis.lg";
+tradition "../lib/numeri.lg";
+tradition "../lib/psalms.lg";
 
 mystery main() {
     proclaim "--- The Morning Service ---";

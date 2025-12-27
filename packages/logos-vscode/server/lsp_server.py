@@ -27,7 +27,7 @@ try:
 except Exception as e:
     _fatal(
         "LOGOS Iconostasis: Failed to import LSP dependencies.\n"
-        "Install into your chosen interpreter: pip install -r logos-vscode/server/requirements.txt\n"
+        "Install into your chosen interpreter: pip install -r packages/logos-vscode/server/requirements.txt\n"
         f"Details: {e}"
     )
     raise
@@ -37,7 +37,7 @@ try:
 except Exception as e:
     _fatal(
         "LOGOS Iconostasis: Missing Lark.\n"
-        "Install: pip install -r logos-vscode/server/requirements.txt\n"
+        "Install: pip install -r packages/logos-vscode/server/requirements.txt\n"
         f"Details: {e}"
     )
     raise
@@ -55,7 +55,7 @@ def _load_grammar() -> str:
         raise RuntimeError(
             "LOGOS Iconostasis: Missing bundled grammar file.\n"
             f"Expected: {grammar_path}\n"
-            "If you are developing, ensure `logos-vscode/server/logos.lark` exists and is included in the VSIX."
+            "If you are developing, ensure `packages/logos-vscode/server/logos.lark` exists and is included in the VSIX."
         ) from e
 
     if not grammar.strip():

@@ -42,7 +42,7 @@ function resolveServerOptions(context: ExtensionContext): ServerOptions {
   const pythonCommand = resolvePythonCommand();
 
   window.showWarningMessage(
-    'Logos: Using Python language server. If it fails to start, install dependencies: pip install -r logos-vscode/server/requirements.txt, or ship a bundled server binary.'
+    'Logos: Using Python language server. If it fails to start, install dependencies: pip install -r packages/logos-vscode/server/requirements.txt, or ship a bundled server binary.'
   );
 
   return {
