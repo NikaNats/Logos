@@ -1,0 +1,66 @@
+# The Book of Genesis: Standard Library for LOGOS
+# Scrolls (File I/O), Chronos (Time), and The Cosmos (Environment)
+
+# --- CHAPTER 1: SCROLLS (File I/O) ---
+
+structure Scroll {
+    path: Text;
+    fd: HolyInt; # 0 signifies a broken seal
+} amen
+
+service open_scroll(path: Text, mode: HolyInt) -> Scroll {
+    gift handle : HolyInt = __sys_open(path, mode);
+
+    offer new Scroll {
+        path = path,
+        fd = handle
+    };
+} amen
+
+service close_scroll(s: Scroll) -> Void {
+    __sys_close(s.fd);
+} amen
+
+service write_line(s: Scroll, content: Text) -> Bool {
+    inspect ((s.fd == 0)) {
+        case Verily: offer Nay;
+        case _: pass;
+    } amen
+
+    offer __sys_write(s.fd, (content + "\n"));
+} amen
+
+service read_segment(s: Scroll, length: HolyInt) -> Text {
+    inspect ((s.fd == 0)) {
+        case Verily: offer "";
+        case _: pass;
+    } amen
+
+    offer __sys_read(s.fd, length);
+} amen
+
+
+# --- CHAPTER 2: CHRONOS (Time) ---
+
+service now() -> HolyInt {
+    offer __sys_time();
+} amen
+
+service since(start_time: HolyInt) -> HolyInt {
+    gift current : HolyInt = now();
+    offer (current - start_time);
+} amen
+
+
+# --- CHAPTER 3: THE COSMOS (Environment) ---
+
+service get_env(key: Text, default_val: Text) -> Text {
+    gift val : Any = __sys_env(key);
+
+    try {
+        gift _len : HolyInt = measure(val);
+        offer val;
+    } repent e {
+        offer default_val;
+    } amen
+} amen

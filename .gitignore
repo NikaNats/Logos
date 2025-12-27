@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -24,6 +23,10 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# This repo's LOGOS stdlib sources live in /lib; do not ignore it.
+!/lib/
+!/lib/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -94,6 +97,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Node
+node_modules/
 
 # Spyder project settings
 .spyderproject
