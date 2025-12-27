@@ -101,6 +101,29 @@ venv.bak/
 # Node
 node_modules/
 
+# VS Code extension build/test artifacts
+out/
+*.vsix
+.vscode-test/
+
+# Package manager logs/stores
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# IDEs
+.idea/
+.fleet/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -118,3 +141,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Lint/format caches
+.ruff_cache/
