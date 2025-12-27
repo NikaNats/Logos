@@ -1,0 +1,4 @@
+mystery main() {
+    inscribe list = [];
+    proclaim extract(list);
+} amen

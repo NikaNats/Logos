@@ -1,0 +1,8 @@
+icon Box { val: HolyInt; } amen
+
+mystery main() {
+    inscribe a = write Box { val=1 };
+    inscribe b = a;
+    amend b.val = 2;
+    proclaim a.val;
+} amen

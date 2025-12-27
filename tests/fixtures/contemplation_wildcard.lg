@@ -1,0 +1,6 @@
+mystery main() {
+    contemplate (2) {
+        aspect 1: { proclaim 1; }
+        aspect _: { proclaim 9; }
+    } amen
+} amen

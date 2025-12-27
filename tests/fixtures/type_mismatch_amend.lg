@@ -1,0 +1,4 @@
+mystery main() {
+    inscribe x: HolyInt = 5;
+    amend x = "not an int";
+} amen

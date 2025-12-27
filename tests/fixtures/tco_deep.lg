@@ -1,0 +1,11 @@
+mystery loop(n) {
+    discern (n <= 0) {
+        offer 0;
+    } otherwise {
+        offer loop(n - 1);
+    } amen
+} amen
+
+mystery main() {
+    proclaim loop(50000);
+} amen

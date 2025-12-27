@@ -1,0 +1,11 @@
+inscribe x = "Global";
+
+mystery test() {
+    inscribe x = "Local";
+    proclaim x;
+} amen
+
+mystery main() {
+    test();
+    proclaim x;
+} amen

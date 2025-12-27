@@ -1,0 +1,4 @@
+mystery main() {
+    inscribe fd = __sys_open("this_file_should_not_exist_12345.txt", 0);
+    proclaim fd;
+} amen

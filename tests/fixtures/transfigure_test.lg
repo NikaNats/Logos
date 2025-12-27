@@ -1,0 +1,4 @@
+mystery main() {
+    proclaim transfigure "5" into HolyInt;
+    proclaim transfigure 5 into Text;
+} amen

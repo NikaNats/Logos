@@ -1,0 +1,9 @@
+mystery main() {
+    inscribe fd = __sys_open("canon_io.tmp", 1);
+    proclaim __sys_write(fd, "hello");
+    __sys_close(fd);
+
+    inscribe fd2 = __sys_open("canon_io.tmp", 0);
+    proclaim __sys_read(fd2, -1);
+    __sys_close(fd2);
+} amen

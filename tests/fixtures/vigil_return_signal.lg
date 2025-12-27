@@ -1,0 +1,9 @@
+mystery main() {
+    proclaim "before";
+    vigil {
+        offer 9;
+    } confess sin {
+        proclaim "bad";
+    } amen
+    proclaim "after";
+} amen

@@ -83,7 +83,7 @@ LOGOS_GRAMMAR = r"""
         | STRING  -> string
         | "Verily" -> verily
         | "Nay"    -> nay
-        | "[" expr ("," expr)* "]"          -> procession
+        | "[" (expr ("," expr)*)? "]"        -> procession
         | "write" NAME "{" assign_list? "}" -> write_icon
         | NAME    -> var
         | "(" expr ")"
@@ -178,6 +178,18 @@ class ScopeManager:
             return
         
         # Define new: if in function, local; otherwise global
+        if self.stack:
+            self.stack[-1][name] = value
+        else:
+            self.globals[name] = value
+
+    def declare(self, name: str, value: Any) -> None:
+        """Declare a new binding in the current scope.
+
+        - At top-level, declarations become globals.
+        - Inside a function, declarations always land in the current frame,
+          even if a global of the same name already exists (shadowing).
+        """
         if self.stack:
             self.stack[-1][name] = value
         else:
@@ -381,7 +393,18 @@ class LogosInterpreter(Interpreter):
     def proclaim(self, tree):
         val = self.visit(tree.children[0])
         prefix = "Verily" if val is True else "Nay" if val is False else str(val)
-        print(f"☩ {prefix}")
+        self._emit("☩", prefix)
+
+    @staticmethod
+    def _emit(symbol: str, message: str) -> None:
+        """Emit a line to stdout, resilient to narrow console encodings."""
+        line = f"{symbol} {message}"
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            # Fall back to ASCII-only prefix in environments like cp1252.
+            fallback = "+" if symbol.strip() else ""
+            print(f"{fallback} {message}".strip())
 
     def inscribe(self, tree):
         name = str(tree.children[0])
@@ -393,7 +416,7 @@ class LogosInterpreter(Interpreter):
             self._declare_type(name, declared_type)
 
         self._enforce_declared_type(name, val)
-        self.scope.set(name, val)
+        self.scope.declare(name, val)
         return val
 
     def amend(self, tree):
@@ -788,7 +811,7 @@ class LogosInterpreter(Interpreter):
 # 5. Entry Point & Interface
 # ==========================================
 
-def run_repl(interpreter: LogosInterpreter):
+def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
     print("☩ Logos Interactive Confessional v2.0 ☩")
     print("☩ Type 'silence;' to pass, 'exit' to depart.")
     
@@ -838,7 +861,10 @@ def main():
             interpreter._invoke_user_function(main_func, [])
 
     except Exception as e:
-        print(f"☨ FATAL ERROR ☨\n{e}")
+        try:
+            print(f"☨ FATAL ERROR ☨\n{e}")
+        except UnicodeEncodeError:
+            print(f"FATAL ERROR\n{e}")
         sys.exit(1)
 
 if __name__ == "__main__":

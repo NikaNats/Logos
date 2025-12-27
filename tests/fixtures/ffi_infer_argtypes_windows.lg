@@ -1,0 +1,5 @@
+mystery main() {
+    // Omit arg types so the runtime must infer them from the call.
+    apocrypha "msvcrt" mystery puts() -> HolyInt;
+    puts("Hello from inferred types");
+} amen

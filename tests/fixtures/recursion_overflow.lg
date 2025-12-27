@@ -1,0 +1,8 @@
+mystery loop() {
+    // Not a tail call (no offer), intentionally stresses recursion handling.
+    loop();
+} amen
+
+mystery main() {
+    loop();
+} amen

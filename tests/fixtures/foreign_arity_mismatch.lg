@@ -1,0 +1,5 @@
+mystery main() {
+    apocrypha "msvcrt" mystery puts(s: Text) -> HolyInt;
+    // Should be rejected before calling into ctypes.
+    puts("a", "b");
+} amen

@@ -1,0 +1,4 @@
+mystery main() {
+    apocrypha "msvcrt" mystery puts(s: Text) -> HolyInt;
+    puts("Hello from the Metal");
+} amen

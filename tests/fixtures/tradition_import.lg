@@ -1,0 +1,4 @@
+mystery main() {
+    tradition "tradition_imported.lg";
+    proclaim imported_value;
+} amen

@@ -1,0 +1,7 @@
+mystery main() {
+    vigil {
+        inscribe x = 1 / 0;
+    } confess sin {
+        proclaim "Forgiven";
+    } amen
+} amen

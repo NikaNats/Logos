@@ -79,7 +79,7 @@ atom: NUMBER  -> number
     | STRING  -> string
     | "Verily" -> verily
     | "Nay"    -> nay
-    | "[" expr ("," expr)* "]"          -> procession
+    | "[" (expr ("," expr)*)? "]"        -> procession
     | "write" NAME "{" assign_list? "}" -> write_icon
     | NAME    -> var
     | "(" expr ")"

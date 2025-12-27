@@ -1,0 +1,6 @@
+mystery main() {
+    inscribe i = 10;
+    chant i < 5 {
+        proclaim "Heresy";
+    } amen
+} amen
