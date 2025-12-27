@@ -19,6 +19,34 @@ You should see highlighting for:
 
 ## Packaging (Distribution)
 
+### Option A: Bundled Binary Language Server (Recommended)
+
+By default the extension can run a Python LSP server, but that requires end users to have a working Python environment with dependencies installed.
+
+The professional distribution approach is to ship a bundled executable built with PyInstaller:
+
+1. Build the Windows server binary:
+
+```powershell
+cd logos-vscode\server
+./build_server_win.ps1
+```
+
+This produces:
+
+- `logos-vscode/server/bin/win32/logos-lang-server.exe`
+
+2. Package the extension:
+
+```bash
+cd logos-vscode
+npx --yes @vscode/vsce package --allow-missing-repository
+```
+
+The VSIX will include the bundled server binary, and end users will not need Python.
+
+### Classic Packaging
+
 ```bash
 npm install -g vsce
 cd logos-vscode

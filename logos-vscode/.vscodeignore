@@ -1,6 +1,7 @@
 .vscode/**
 **/__pycache__/**
 **/*.pyc
+server/build/**
 src/**
 tsconfig.json
 *.ts
