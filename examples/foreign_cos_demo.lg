@@ -1,10 +1,10 @@
-# Great Commission demo: calling a C math function via foreign service
+# Great Commission demo: calling a C math function via apocrypha.
 # Windows: msvcrt.dll provides cos(double) -> double
 
-foreign "msvcrt.dll" service cos(x: HolyFloat) -> HolyFloat;
+apocrypha "msvcrt.dll" mystery cos();
 
-ministry main() -> Void {
-  gift x: HolyFloat = 0.0;
-  gift y: HolyFloat = cos(x);
-  behold y;
+mystery main() -> Void {
+  inscribe x: HolyFloat = 0.0;
+  inscribe y: HolyFloat = cos(x);
+  proclaim y;
 } amen

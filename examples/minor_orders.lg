@@ -1,16 +1,17 @@
-service main() {
-    gift is_holy : Bool = Verily;
-    gift letter : Char = 'A';
-    gift mask : Byte = 0xFF;
+mystery main() {
+    proclaim "--- Minor Orders (Canonical) ---";
 
-    // Type inference
-    gift inferred_bool = Nay;
+    inscribe is_holy: Bool = Verily;
+    inscribe letter: Text = "A";
+    inscribe mask: HolyInt = 255;
+    inscribe inferred_bool = Nay;
 
-    kairos (is_holy == Verily) {
-        behold "It is true.";
+    contemplate (is_holy) {
+        aspect Verily: proclaim "It is true.";
+        aspect Nay: proclaim "It is not true.";
     } amen
 
-    behold letter;
-    behold mask;
-    behold inferred_bool;
+    proclaim letter;
+    proclaim mask;
+    proclaim inferred_bool;
 } amen

@@ -1,5 +1,5 @@
-import "module_a.lg";
+tradition "module_a.lg";
 
-service main() {
+mystery main() {
     helper();
 } amen

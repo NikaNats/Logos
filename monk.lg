@@ -1,0 +1,51 @@
+// monk.lg
+
+icon Monk {
+    name: String;
+    rank: String;
+} amen
+
+mystery calculate_penance(sins) {
+    discern (sins > 10) {
+        proclaim "Heavy penance required.";
+        offer sins * 2;
+    } otherwise {
+        proclaim "Light penance granted.";
+        offer sins;
+    } amen
+} amen
+
+mystery main() {
+    proclaim "--- The Daily Office ---";
+
+    // Writing an Icon (Instantiating a struct)
+    inscribe novice = write Monk {
+        name = "Paisios",
+        rank = "Novice"
+    };
+
+    proclaim "Brother " + novice.name + " is attending.";
+
+    inscribe sins_count = 12;
+
+    // Transfigure (Cast) Int to String for printing
+    proclaim "Sins confessed: " + transfigure sins_count into String;
+
+    inscribe penance_days = calculate_penance(sins_count);
+
+    proclaim "Chanting prayers...";
+    inscribe i = 0;
+
+    // Chant (Loop)
+    chant i < 3 {
+        proclaim "Kyrie Eleison...";
+        inscribe i = i + 1;
+    } amen
+
+    // Contemplate (Switch/Match)
+    contemplate (novice.rank) {
+        aspect "Abbot": { proclaim "Bless, Father."; }
+        aspect "Novice": { proclaim "Sweep the floor, brother."; }
+        aspect _: { proclaim "Welcome, pilgrim."; }
+    } amen
+} amen

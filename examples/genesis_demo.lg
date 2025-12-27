@@ -1,21 +1,21 @@
-import "../lib/genesis.lg";
+tradition "../lib/genesis.lg";
 
-service main() {
-    behold "--- Genesis Demo ---";
+mystery main() {
+    proclaim "--- Genesis Demo ---";
 
-    gift user : Text = get_env("USER", "Unknown Monk");
-    behold ("Scribe: " + user);
+    inscribe user : Text = get_env("USER", "Unknown Monk");
+    proclaim ("Scribe: " + user);
 
-    gift start_time : HolyInt = now();
+    inscribe start_time : HolyInt = now();
 
-    gift log : Scroll = open_scroll("genesis_demo.log", 1);
+    inscribe log : Scroll = open_scroll("genesis_demo.log", 1);
 
-    gift ok : Bool = write_line(log, "Matins service performed by " + user);
-    behold "Write success:";
-    behold ok;
+    inscribe ok : Bool = write_line(log, "Matins mystery performed by " + user);
+    proclaim "Write success:";
+    proclaim ok;
     close_scroll(log);
 
-    gift duration : HolyInt = since(start_time);
-    behold "Service duration (ms):";
-    behold duration;
+    inscribe duration : HolyInt = since(start_time);
+    proclaim "Service duration (ms):";
+    proclaim duration;
 } amen

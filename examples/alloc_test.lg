@@ -1,4 +1,4 @@
-service main() {
-    gift a = alloc(3);
-    behold measure(a);
+mystery main() {
+    inscribe a = alloc(3);
+    proclaim measure(a);
 } amen

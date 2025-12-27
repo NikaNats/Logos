@@ -1,31 +1,21 @@
-# Define an Apophatic Nature
-type Probability = essence {
-    not p < 0;
-    not p > 1;
-} amen
+mystery main() {
+    proclaim "--- Script (Canonical) ---";
 
-service main() {
-    # Essence: Unchangeable Truth
-    essence p : Probability = 0.7;
-    behold "The probability is revealed:";
-    behold p;
-
-    # Gift: A state that can change
-    gift count : HolyInt = 1;
-    # Fasting from infinite loops with a limit
-    cycle (count <= 3) limit 10 {
-        behold "Iteration:";
-        behold count;
-        count = (count + 1);
+    inscribe count: HolyInt = 1;
+    chant (count <= 3) {
+        proclaim "Iteration:";
+        proclaim count;
+        inscribe count = count + 1;
     } amen
 
-    # Repentance for failed transfiguration
-    try {
-        essence raw : Text = "invalid_number";
-        essence secret : HolyInt = witness raw as HolyInt;
-    } repent sin {
-        behold "A hamartia occurred during witnessing, but we have repented.";
+    vigil {
+        inscribe raw: Text = "invalid_number";
+        inscribe secret: HolyInt = transfigure raw into HolyInt;
+        proclaim secret;
+    } confess sin {
+        proclaim "A hamartia occurred during transfiguration.";
+        proclaim sin;
     } amen
 
-    behold "Liturgy complete. Amen.";
+    proclaim "Liturgy complete. Amen.";
 } amen

@@ -1,18 +1,14 @@
-# Confession demo: typed repentance + inheritance + transgress
+# Confession demo (Canonical): vigil/confess around a runtime error.
 
-structure Sin {
-  message: Text;
-} amen
+mystery main() -> Void {
+  proclaim "--- Confession (Vigil) ---";
 
-structure DivByZero : Sin {
-  numerator: HolyInt;
-} amen
-
-ministry main() -> Void {
-  try {
-    transgress new DivByZero { message = "Division by zero", numerator = 12 };
-  } repent e : Sin {
-    behold e.__type__;
-    behold e.message;
+  vigil {
+    inscribe x = 1;
+    inscribe y = 0;
+    proclaim (x / y);
+  } confess e {
+    proclaim "A fault occurred, and we have confessed:";
+    proclaim e;
   } amen
 } amen

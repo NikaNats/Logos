@@ -1,28 +1,24 @@
-type HolyInt = essence {
-    not val < 0;
-} amen
-
-service main() {
+mystery main() {
     // 1. The Communion (Concatenation)
-    gift alpha : Text = "In the ";
-    gift omega : Text = "beginning...";
+    inscribe alpha : Text = "In the ";
+    inscribe omega : Text = "beginning...";
 
     // The '+' operator now works on Strings
-    gift scripture : Text = alpha + omega;
+    inscribe scripture : Text = alpha + omega;
 
-    behold "Complete Text:";
-    behold scripture;
+    proclaim "Complete Text:";
+    proclaim scripture;
 
     // 2. The Measurement (Length)
-    gift size : HolyInt = measure(scripture);
+    inscribe size : HolyInt = measure(scripture);
 
-    behold "Length of Text:";
-    behold size;
+    proclaim "Length of Text:";
+    proclaim size;
 
     // 3. The Passage (Substring)
     // Extract "beginning"
-    gift word : Text = passage(scripture, 7, 9);
+    inscribe word : Text = passage(scripture, 7, 9);
 
-    behold "Extracted Word:";
-    behold word;
+    proclaim "Extracted Word:";
+    proclaim word;
 } amen

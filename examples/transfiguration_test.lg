@@ -1,10 +1,10 @@
 # Link the C math library (msvcrt on Windows, m on Linux)
-foreign "msvcrt" service cos();
+apocrypha "msvcrt" mystery cos();
 
-gift counter = 0;
+inscribe counter = 0;
 
-cycle counter < 3 {
-    gift val = cos(counter);
-    behold val;
-    gift counter = counter + 1;
+chant counter < 3 {
+    inscribe val = cos(counter);
+    proclaim val;
+    inscribe counter = counter + 1;
 } amen

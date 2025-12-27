@@ -3,36 +3,36 @@
 
 # --- SYSTEM INTRINSICS WRAPPERS ---
 
-service open_scroll(path: Text, mode: HolyInt) {
+mystery open_scroll(path: Text, mode: HolyInt) {
     # __sys_open is defined in logos.py
-    gift fd = __sys_open(path, mode);
+    inscribe fd = __sys_open(path, mode);
     offer fd;
 } amen
 
-service close_scroll(fd: HolyInt) {
+mystery close_scroll(fd: HolyInt) {
     __sys_close(fd);
 } amen
 
-service write_line(fd: HolyInt, txt: Text) {
-    gift ok = __sys_write(fd, (txt + "\n"));
+mystery write_line(fd: HolyInt, txt: Text) {
+    inscribe ok = __sys_write(fd, (txt + "\n"));
     offer ok;
 } amen
 
-service read_all(fd: HolyInt) {
+mystery read_all(fd: HolyInt) {
     # -1 tells Python to read until EOF
     offer __sys_read(fd, -1);
 } amen
 
-service now() {
+mystery now() {
     offer __sys_time();
 } amen
 
-service get_env(key: Text) {
+mystery get_env(key: Text) {
     offer __sys_env(key);
 } amen
 
-service sleep(ms: HolyInt) {
+mystery sleep(ms: HolyInt) {
     # We don't have a sleep intrinsic in logos.py yet,
     # but normally this would call __sys_sleep
-    pass;
+    silence;
 } amen

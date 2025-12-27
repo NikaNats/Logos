@@ -1,28 +1,25 @@
-type SacredBalance = essence {
-    not < 0;
-} amen
+mystery main() -> Void {
+    proclaim "--- Liturgy (Canonical) ---";
 
-ministry main() -> Void {
-    essence treasury : Synod = create_synod(gold=0);
+    inscribe gold: HolyInt = 0;
+    inscribe count: HolyInt = 0;
 
-    intercessor donor(t: Synod) -> Void {
-        gift count : HolyInt = 0;
-        cycle (count < 4) {
-            behold "Adding gold...";
-            await t.petition("gold", (t.read("gold") + 25));
-            count = (count + 1);
-            fast 0.5;
-        } amen
+    chant count < 4 {
+        inscribe gold = gold + 25;
+        inscribe count = count + 1;
     } amen
 
-    intercessor distributor(t: Synod) -> Void {
-        wait until kairos (t.read("gold") >= 100) timeout 5 {
-            behold "The time is fulfilled!";
-            await t.petition("gold", 0);
-        } repent {
-            behold "Community was not ready.";
-        } amen amen
+    contemplate (gold >= 100) {
+        aspect Verily: proclaim "The time is fulfilled!";
+        aspect Nay: proclaim "Community was not ready.";
     } amen
 
-    gather(donor(treasury), distributor(treasury));
+    vigil {
+        inscribe x = 1;
+        inscribe y = 0;
+        proclaim (x / y);
+    } confess e {
+        proclaim "A vigil caught an error:";
+        proclaim e;
+    } amen
 } amen

@@ -4,31 +4,31 @@
 // I. THE BOOK OF NUMBERS (Mathematics)
 // ==========================================
 
-ministry abs(x: HolyInt) -> HolyInt {
-    inspect (x < 0) {
-        case Verily: offer 0 - x;
-        case Nay:    offer x;
+mystery abs(x: HolyInt) -> HolyInt {
+    contemplate (x < 0) {
+        aspect Verily: offer 0 - x;
+        aspect Nay:    offer x;
     } amen
 } amen
 
-ministry max(a: HolyInt, b: HolyInt) -> HolyInt {
-    inspect (a > b) {
-        case Verily: offer a;
-        case Nay:    offer b;
+mystery max(a: HolyInt, b: HolyInt) -> HolyInt {
+    contemplate (a > b) {
+        aspect Verily: offer a;
+        aspect Nay:    offer b;
     } amen
 } amen
 
-ministry min(a: HolyInt, b: HolyInt) -> HolyInt {
-    inspect (a < b) {
-        case Verily: offer a;
-        case Nay:    offer b;
+mystery min(a: HolyInt, b: HolyInt) -> HolyInt {
+    contemplate (a < b) {
+        aspect Verily: offer a;
+        aspect Nay:    offer b;
     } amen
 } amen
 
-ministry pow(base: HolyInt, exp: HolyInt) -> HolyInt {
-    inspect (exp == 0) {
-        case Verily: offer 1;
-        case Nay:    offer base * pow(base, exp - 1);
+mystery pow(base: HolyInt, exp: HolyInt) -> HolyInt {
+    contemplate (exp is 0) {
+        aspect Verily: offer 1;
+        aspect Nay:    offer base * pow(base, exp - 1);
     } amen
 } amen
 
@@ -36,18 +36,18 @@ ministry pow(base: HolyInt, exp: HolyInt) -> HolyInt {
 // II. THE BOOK OF WORDS (String Manipulation)
 // ==========================================
 
-ministry is_empty(s: Text) -> Bool {
-    offer measure(s) == 0;
+mystery is_empty(s: Text) -> Bool {
+    offer measure(s) is 0;
 } amen
 
-ministry equals(s1: Text, s2: Text) -> Bool {
-    offer s1 == s2;
+mystery equals(s1: Text, s2: Text) -> Bool {
+    offer s1 is s2;
 } amen
 
-ministry chant(s: Text, count: HolyInt) -> Text {
-    inspect (count <= 0) {
-        case Verily: offer "";
-        case Nay:    offer s + chant(s, count - 1);
+mystery chant(s: Text, count: HolyInt) -> Text {
+    contemplate (count <= 0) {
+        aspect Verily: offer "";
+        aspect Nay:    offer s + chant(s, count - 1);
     } amen
 } amen
 
@@ -55,24 +55,25 @@ ministry chant(s: Text, count: HolyInt) -> Text {
 // III. THE BOOK OF REVELATION (I/O Helpers)
 // ==========================================
 
-service say(msg: Text) {
-    behold msg;
+mystery say(msg: Text) {
+    proclaim msg;
 } amen
 
-service say_int(n: HolyInt) {
-    behold n;
+mystery say_int(n: HolyInt) {
+    proclaim n;
 } amen
 
-ministry ask(prompt: Text) -> Text {
-    gift response : Text = listen prompt;
+// Note: supplicate prompts and reads a line of input.
+mystery ask(prompt: Text) -> Text {
+    inscribe response : Text = supplicate prompt;
     offer response;
 } amen
 
-ministry ask_int(prompt: Text) -> HolyInt {
-    gift txt : Text = listen prompt;
-    try {
-        offer witness txt as HolyInt;
-    } repent e {
+mystery ask_int(prompt: Text) -> HolyInt {
+    inscribe txt : Text = supplicate prompt;
+    vigil {
+        offer transfigure txt into HolyInt;
+    } confess e {
         // If input is not a HolyInt, return 0 by convention.
         offer 0;
     } amen
@@ -82,23 +83,23 @@ ministry ask_int(prompt: Text) -> HolyInt {
 // IV. THE BOOK OF LOGIC (Boolean Helpers)
 // ==========================================
 
-ministry not(b: Bool) -> Bool {
-    inspect (b) {
-        case Verily: offer Nay;
-        case Nay:    offer Verily;
+mystery not(b: Bool) -> Bool {
+    contemplate (b) {
+        aspect Verily: offer Nay;
+        aspect Nay:    offer Verily;
     } amen
 } amen
 
-ministry and(a: Bool, b: Bool) -> Bool {
-    inspect (a) {
-        case Verily: offer b;
-        case Nay:    offer Nay;
+mystery and(a: Bool, b: Bool) -> Bool {
+    contemplate (a) {
+        aspect Verily: offer b;
+        aspect Nay:    offer Nay;
     } amen
 } amen
 
-ministry or(a: Bool, b: Bool) -> Bool {
-    inspect (a) {
-        case Verily: offer Verily;
-        case Nay:    offer b;
+mystery or(a: Bool, b: Bool) -> Bool {
+    contemplate (a) {
+        aspect Verily: offer Verily;
+        aspect Nay:    offer b;
     } amen
 } amen

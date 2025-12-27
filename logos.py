@@ -11,38 +11,41 @@ from lark.visitors import Interpreter
 GRAMMAR = r"""
     start: statement*
 
-    statement: "behold" expr ";"                                          -> behold
-             | "gift" NAME (":" NAME)? "=" expr ";"                   -> gift
-             | "foreign" STRING "service" NAME "(" ")" ";"            -> foreign
-             | "import" STRING ";"                                        -> import_lib
-             | "cycle" expr block "amen"                                    -> cycle
-             | "if" "(" expr ")" block "else" block "amen"                 -> condition
-             | "try" block "repent" NAME block "amen"                        -> try_repent
-             | ("service"|"ministry") NAME "(" params? ")" ("->" NAME)? block "amen" -> service_def
-             | "structure" NAME "{" field_decl* "}" "amen"                  -> structure_def
-             | "inspect" "(" expr ")" "{" case_clause+ "}" "amen"            -> inspect
-             | "offer" expr ";"                                           -> offer
-             | "pass" ";"                                                  -> pass_stmt
-             | expr ";"                                                     -> expr_stmt
+    // --- LITURGICAL STATEMENTS ---
+    statement: "proclaim" expr ";"                                   -> proclaim
+             | "inscribe" NAME (":" NAME)? "=" expr ";"              -> inscribe
+             | "apocrypha" STRING "mystery" NAME "(" ")" ";"         -> apocrypha
+             | "tradition" STRING ";"                                 -> tradition
+             | "chant" expr block "amen"                               -> chant
+             | "discern" "(" expr ")" block "otherwise" block "amen"     -> discernment
+             | "vigil" block "confess" NAME block "amen"                 -> vigil
+             | "mystery" NAME "(" params? ")" ("->" NAME)? block "amen"   -> mystery_def
+             | "icon" NAME "{" field_decl* "}" "amen"                    -> icon_def
+             | "contemplate" "(" expr ")" "{" case_clause+ "}" "amen"     -> contemplation
+             | "offer" expr ";"                                       -> offer
+             | "silence" ";"                                          -> silence
+             | expr ";"                                                -> expr_stmt
 
-    block: "{" statement* "}"                                            -> block
+    block: "{" statement* "}"                                        -> block
 
     field_decl: NAME ":" NAME ";"
 
     params: param ("," param)*
     param: NAME (":" NAME)?
 
-    case_clause: "case" pattern ":" case_body
+    // --- CONTEMPLATION (Pattern Matching) ---
+    case_clause: "aspect" pattern ":" case_body
     ?case_body: block
               | statement
-    ?pattern: "_"                                                          -> wildcard
+    ?pattern: "_"                                                    -> wildcard
             | expr
 
+    // --- EXPRESSIONS & DOGMA ---
     ?expr: equality
 
     ?equality: comparison
-             | equality "==" comparison -> eq
-             | equality "!=" comparison -> ne
+             | equality "is" comparison               -> eq
+             | equality "is" "not" comparison         -> ne
 
     ?comparison: sum
                | comparison "<" sum  -> lt
@@ -58,10 +61,10 @@ GRAMMAR = r"""
             | product "*" unary -> mul
             | product "/" unary -> div
 
-        ?unary: "-" unary                 -> neg
-                    | call
-                    | "witness" expr "as" NAME -> witness
-                    | "listen" expr             -> listen
+    ?unary: "-" unary                          -> neg
+          | call
+          | "transfigure" expr "into" NAME      -> transfigure
+          | "supplicate" expr                  -> supplicate
 
     ?call: access
          | NAME "(" args? ")" -> call
@@ -75,7 +78,7 @@ GRAMMAR = r"""
         | STRING  -> string
         | "Verily" -> verily
         | "Nay"    -> nay
-        | "new" NAME "{" assign_list? "}" -> new_struct
+        | "write" NAME "{" assign_list? "}" -> write_icon
         | NAME    -> var
         | "(" expr ")"
 
@@ -118,7 +121,7 @@ class LogosInterpreter(Interpreter):
         self._stack: list[dict[str, object]] = []
         self._libs: dict[str, ctypes.CDLL] = {}
         self._imported: set[str] = set()
-        self._struct_fields: dict[str, list[str]] = {}
+        self._icon_fields: dict[str, list[str]] = {}
         self._functions: dict[str, UserFunction] = {}
 
         self.base_path = os.path.abspath(base_path or os.getcwd())
@@ -136,14 +139,14 @@ class LogosInterpreter(Interpreter):
         self._globals["measure"] = lambda x: len(str(x))
         self._globals["passage"] = lambda s, start, l: str(s)[int(start) : int(start) + int(l)]
 
-    def behold(self, tree):
+    def proclaim(self, tree):
         val = self.visit(tree.children[0])
         if isinstance(val, bool):
             print(f"☩ {'Verily' if val else 'Nay'}")
             return
         print(f"☩ {val}")
 
-    def gift(self, tree):
+    def inscribe(self, tree):
         name = str(tree.children[0])
         # Optional type annotation is ignored.
         expr_idx = 2 if len(tree.children) == 3 else 1
@@ -222,7 +225,7 @@ class LogosInterpreter(Interpreter):
             last = self.visit(stmt)
         return last
 
-    def condition(self, tree):
+    def discernment(self, tree):
         cond_expr = tree.children[0]
         then_block = tree.children[1]
         else_block = tree.children[2]
@@ -231,14 +234,14 @@ class LogosInterpreter(Interpreter):
             return self.visit(then_block)
         return self.visit(else_block)
 
-    def cycle(self, tree):
+    def chant(self, tree):
         cond_node = tree.children[0]
         body_block = tree.children[1]
 
         while self.visit(cond_node):
             self.visit(body_block)
 
-    def try_repent(self, tree):
+    def vigil(self, tree):
         try_block = tree.children[0]
         err_name = str(tree.children[1])
         repent_block = tree.children[2]
@@ -255,10 +258,10 @@ class LogosInterpreter(Interpreter):
         val = self.visit(tree.children[0])
         raise _ReturnSignal(val)
 
-    def pass_stmt(self, tree):
+    def silence(self, tree):
         return None
 
-    def witness(self, tree):
+    def transfigure(self, tree):
         val = self.visit(tree.children[0])
         typ = str(tree.children[1])
         if typ in ("HolyInt", "Int"):
@@ -269,7 +272,7 @@ class LogosInterpreter(Interpreter):
             return str(val)
         return val
 
-    def listen(self, tree):
+    def supplicate(self, tree):
         prompt = self.visit(tree.children[0])
         return input(str(prompt))
 
@@ -283,7 +286,7 @@ class LogosInterpreter(Interpreter):
     def wildcard(self, tree):
         return "__WILDCARD__"
 
-    def inspect(self, tree):
+    def contemplation(self, tree):
         inspect_val = self.visit(tree.children[0])
         case_nodes = tree.children[1:]
 
@@ -299,17 +302,17 @@ class LogosInterpreter(Interpreter):
         return None
 
     def case_clause(self, tree):
-        # Container node; handled in inspect().
+        # Container node; handled in contemplation().
         return tree
 
-    def structure_def(self, tree):
+    def icon_def(self, tree):
         name = str(tree.children[0])
         fields: list[str] = []
         for child in tree.children[1:]:
             # field_decl: NAME ':' TYPE ';'
             if hasattr(child, "children") and child.children:
                 fields.append(str(child.children[0]))
-        self._struct_fields[name] = fields
+        self._icon_fields[name] = fields
         return None
 
     def assign(self, tree):
@@ -318,17 +321,17 @@ class LogosInterpreter(Interpreter):
     def assign_list(self, tree):
         return [self.visit(c) for c in tree.children]
 
-    def new_struct(self, tree):
+    def write_icon(self, tree):
         name = str(tree.children[0])
         assigns = []
         if len(tree.children) > 1:
             assigns = self.visit(tree.children[1])
-        obj: dict[str, object] = {"__type__": name}
+        obj: dict[str, object] = {"__icon__": name}
         for k, v in assigns:
             obj[k] = v
         return obj
 
-    def import_lib(self, tree):
+    def tradition(self, tree):
         filename = str(tree.children[0])[1:-1]
 
         # Resolve relative to the entry file directory.
@@ -342,7 +345,7 @@ class LogosInterpreter(Interpreter):
         self._imported.add(path)
 
         if not os.path.exists(path):
-            raise Exception(f"Import Error: scripture not found: {filename}")
+            raise Exception(f"Schism: Tradition not found: {filename}")
 
         with open(path, "r", encoding="utf-8") as f:
             source = f.read()
@@ -351,9 +354,8 @@ class LogosInterpreter(Interpreter):
         imported_tree = parser.parse(source)
         return self.visit(imported_tree)
 
-    def service_def(self, tree):
-        # statement rule includes ("service"|"ministry") as literals; Lark does not
-        # necessarily keep that literal token in the tree children.
+    def mystery_def(self, tree):
+        # The grammar defines mysteries; optional param type and return type are ignored.
         # Children layout (typical):
         # 0: NAME (function name)
         # 1: params? (Tree)
@@ -443,7 +445,7 @@ class LogosInterpreter(Interpreter):
         except Exception:
             return None
 
-    def foreign(self, tree):
+    def apocrypha(self, tree):
         lib_name = str(tree.children[0])[1:-1]
         func_name = str(tree.children[1])
 
@@ -459,7 +461,7 @@ class LogosInterpreter(Interpreter):
             func.restype = ctypes.c_double
 
             self._globals[func_name] = ForeignFunction(func=func, restype=ctypes.c_double)
-            print(f"[System] Linked with {lib_path}::{func_name}")
+            print(f"[System] Apocrypha bound: {lib_path}::{func_name}")
         except Exception as e:
             print(f"[Warning] Could not link {lib_path}: {e}")
 
@@ -490,7 +492,7 @@ class LogosInterpreter(Interpreter):
                     raise Exception(f"Heresy: Foreign arguments must be numeric (got {type(a)})")
             return callee.func(*c_args)
 
-        raise Exception(f"Unknown service: {func_name}")
+        raise Exception(f"Anathema: Unknown mystery '{func_name}'")
 
     def _resolve_name(self, name: str) -> object:
         for frame in reversed(self._stack):
@@ -500,7 +502,7 @@ class LogosInterpreter(Interpreter):
             return self._globals[name]
         if name in self._functions:
             return self._functions[name]
-        raise Exception(f"Heresy: Unknown spirit '{name}'")
+        raise Exception(f"Anathema: Unknown spirit '{name}'")
 
     def _set_var(self, name: str, value: object) -> None:
         if self._stack:

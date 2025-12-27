@@ -1,5 +1,5 @@
-ministry main() -> Void {
-    gift a = 5;
-    gift b = 3;
-    behold (a - b);
+mystery main() -> Void {
+    inscribe a = 5;
+    inscribe b = 3;
+    proclaim (a - b);
 } amen

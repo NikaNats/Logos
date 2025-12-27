@@ -1,9 +1,9 @@
-service main() {
-    gift a : HolyInt = 0 - 50;
-    gift b : HolyInt = 20;
+mystery main() {
+    inscribe a : HolyInt = 0 - 50;
+    inscribe b : HolyInt = 20;
 
-    gift dist : HolyInt = abs(a);
-    gift highest : HolyInt = max(dist, b);
+    inscribe dist : HolyInt = abs(a);
+    inscribe highest : HolyInt = max(dist, b);
 
     say("The absolute value is:");
     say_int(dist);

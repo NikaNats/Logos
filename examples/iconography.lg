@@ -1,33 +1,28 @@
-type HolyInt = essence {
-    not val < 0;
-} amen
-
-structure Disciple {
+icon Disciple {
     name: Text;
     age: HolyInt;
 } amen
 
-service main() {
-    gift numbers : Void = [10, 20, 30];
+mystery main() {
+    proclaim "--- Iconography (Canonical) ---";
 
-    behold "First Number:";
-    behold numbers[0];
-
-    numbers[1] = 555;
-
-    behold "Modified Second Number:";
-    behold numbers[1];
-
-    gift peter : Void = new Disciple {
+    inscribe peter = write Disciple {
         name = "Peter",
         age = 33
     };
 
-    behold "Disciple Name:";
-    behold peter.name;
+    proclaim "Disciple Name:";
+    proclaim peter.name;
 
-    peter.age = 34;
+    proclaim "Disciple Age:";
+    proclaim peter.age;
 
-    behold "Disciple New Age:";
-    behold peter.age;
+    # Update by re-inscribing a new icon value.
+    inscribe peter = write Disciple {
+        name = peter.name,
+        age = 34
+    };
+
+    proclaim "Disciple New Age:";
+    proclaim peter.age;
 } amen

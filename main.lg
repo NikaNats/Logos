@@ -1,15 +1,15 @@
-import "lib/genesis.lg";
+tradition "lib/genesis.lg";
 
-ministry main() -> Void {
-    behold "--- Standard Library Smoke Test ---";
+mystery main() -> Void {
+    proclaim "--- Standard Library Smoke Test ---";
 
-    gift t0: HolyInt = now();
-    behold t0;
+    inscribe t0: HolyInt = now();
+    proclaim t0;
 
-    gift fd = open_scroll("monastery.log", 1);
+    inscribe fd = open_scroll("monastery.log", 1);
     write_line(fd, "Service started");
     close_scroll(fd);
 
-    gift t1: HolyInt = now();
-    behold (t1 - t0);
+    inscribe t1: HolyInt = now();
+    proclaim (t1 - t0);
 } amen

@@ -1,21 +1,23 @@
-type HolyInt = essence {
-    not val < 0;
-} amen
+mystery main() {
+    proclaim "--- Confession (Canonical) ---";
 
-service main() {
-    gift name : Text = listen "What is your name? ";
+    # Non-interactive by default (keeps smoke runs deterministic).
+    # To prompt instead, replace the next line with:
+    #   inscribe name: Text = supplicate "What is your name? ";
+    inscribe name: Text = "Pilgrim";
+    proclaim "Welcome, ";
+    proclaim name;
 
-    behold "Welcome, ";
-    behold name;
+    # To prompt instead, replace the next line with:
+    #   inscribe age_str: Text = supplicate "Enter your age: ";
+    inscribe age_str: Text = "42";
 
-    gift age_str : Text = listen "Enter your age: ";
-
-    try {
-        gift age : HolyInt = witness age_str as HolyInt;
-
-        behold "In 10 years, you will be:";
-        behold age + 10;
-    } repent err {
-        behold "Ontological Error: Could not witness age.";
+    vigil {
+        inscribe age: HolyInt = transfigure age_str into HolyInt;
+        proclaim "In 10 years, you will be:";
+        proclaim (age + 10);
+    } confess err {
+        proclaim "Confession failed: could not transfigure age.";
+        proclaim err;
     } amen
 } amen
