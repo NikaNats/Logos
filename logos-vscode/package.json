@@ -16,7 +16,7 @@
     ],
     "scripts": {
         "compile": "tsc -p .",
-        "package": "npm run compile ; vsce package"
+        "package": "npm run compile && vsce package"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"

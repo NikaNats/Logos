@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import importlib
-import os
 import sys
+from pathlib import Path
 
 
 def _fatal(msg: str) -> None:
@@ -47,25 +46,22 @@ except Exception as e:
 SERVER = LanguageServer("logos-server", "v0.1")
 
 
-def _repo_root() -> str:
-    # Extension dev layout: <repo>/logos-vscode/server/lsp_server.py
-    return os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-
-
-REPO_ROOT = _repo_root()
-sys.path.insert(0, REPO_ROOT)
-
-
 def _load_grammar() -> str:
-    # In the Python-only transfiguration, the canonical grammar lives in <repo>/logos.py.
+    # Best practice for VSIX packaging: ship the grammar with the extension itself.
+    grammar_path = Path(__file__).with_name("logos.lark")
     try:
-        mod = importlib.import_module("logos")
-        grammar = getattr(mod, "GRAMMAR", None)
-        if not isinstance(grammar, str) or not grammar.strip():
-            raise RuntimeError("logos.GRAMMAR is missing or empty")
-        return grammar
-    except Exception as e:
-        raise RuntimeError(f"Failed to load grammar from logos.py: {e}")
+        grammar = grammar_path.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "LOGOS Iconostasis: Missing bundled grammar file.\n"
+            f"Expected: {grammar_path}\n"
+            "If you are developing, ensure `logos-vscode/server/logos.lark` exists and is included in the VSIX."
+        ) from e
+
+    if not grammar.strip():
+        raise RuntimeError(f"LOGOS Iconostasis: Empty grammar file: {grammar_path}")
+
+    return grammar
 
 
 PARSER = Lark(_load_grammar(), parser="lalr", propagate_positions=True)
