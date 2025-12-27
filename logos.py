@@ -20,7 +20,7 @@ GRAMMAR = r"""
              | "amend" mutable "=" expr ";"                          -> amend
 
              // Flow
-             | "apocrypha" STRING "mystery" NAME "(" ")" ";"         -> apocrypha
+             | "apocrypha" STRING "mystery" NAME "(" params? ")" ("->" NAME)? ";" -> apocrypha
              | "tradition" STRING ";"                                -> tradition
              | "chant" expr block "amen"                             -> chant
              | "discern" "(" expr ")" block "otherwise" block "amen" -> discernment
@@ -113,6 +113,7 @@ GRAMMAR = r"""
 class ForeignFunction:
     func: object
     restype: object
+    argtypes: list[object] | None = None
 
 
 @dataclass(frozen=True)
@@ -601,7 +602,35 @@ class LogosInterpreter(Interpreter):
         lib_name = str(tree.children[0])[1:-1]
         func_name = str(tree.children[1])
 
+        idx = 2
+        arg_type_names: list[str] = []
+        if idx < len(tree.children) and getattr(tree.children[idx], "data", None) == "params":
+            for p in tree.children[idx].children:
+                # param: NAME (":" NAME)?
+                if len(p.children) >= 2:
+                    arg_type_names.append(str(p.children[1]))
+                else:
+                    arg_type_names.append("Float")
+            idx += 1
+
+        return_type_name = "Float"
+        if idx < len(tree.children) and getattr(tree.children[idx], "type", None) == "NAME":
+            return_type_name = str(tree.children[idx])
+
         lib_path = self._platform_library_filename(lib_name)
+
+        def _ctype_for(type_name: str) -> object:
+            t = str(type_name)
+            if t in ("HolyFloat", "Float", "Double"):
+                return ctypes.c_double
+            if t in ("HolyInt", "Int"):
+                return ctypes.c_longlong
+            if t in ("Bool", "Verily", "Nay"):
+                return ctypes.c_bool
+            if t in ("Text", "String"):
+                return ctypes.c_char_p
+            # Default: preserve old behavior.
+            return ctypes.c_double
 
         try:
             lib = self._libs.get(lib_path)
@@ -610,9 +639,13 @@ class LogosInterpreter(Interpreter):
                 self._libs[lib_path] = lib
 
             func = getattr(lib, func_name)
-            func.restype = ctypes.c_double
+            restype = _ctype_for(return_type_name)
+            argtypes = [_ctype_for(t) for t in arg_type_names]
+            func.restype = restype
+            if argtypes:
+                func.argtypes = argtypes
 
-            self._globals[func_name] = ForeignFunction(func=func, restype=ctypes.c_double)
+            self._globals[func_name] = ForeignFunction(func=func, restype=restype, argtypes=argtypes)
             print(f"[System] Apocrypha bound: {lib_path}::{func_name}")
         except Exception as e:
             print(f"[Warning] Could not link {lib_path}: {e}")
@@ -642,12 +675,40 @@ class LogosInterpreter(Interpreter):
                 self._call_depth -= 1
 
         if isinstance(callee, ForeignFunction):
-            c_args: list[object] = []
-            for a in args:
+            def _marshal(a: object, ct: object) -> object:
+                if ct is ctypes.c_double:
+                    if isinstance(a, (int, float)):
+                        return ctypes.c_double(float(a))
+                    raise Exception(f"Heresy: Expected Float but got {type(a)}")
+                if ct is ctypes.c_longlong:
+                    if isinstance(a, (int, float)):
+                        return ctypes.c_longlong(int(a))
+                    raise Exception(f"Heresy: Expected Int but got {type(a)}")
+                if ct is ctypes.c_bool:
+                    if isinstance(a, bool):
+                        return ctypes.c_bool(bool(a))
+                    if isinstance(a, (int, float)):
+                        return ctypes.c_bool(bool(a))
+                    raise Exception(f"Heresy: Expected Bool but got {type(a)}")
+                if ct is ctypes.c_char_p:
+                    return ctypes.c_char_p(str(a).encode("utf-8"))
+                # Default: numeric float.
                 if isinstance(a, (int, float)):
-                    c_args.append(ctypes.c_double(float(a)))
-                else:
-                    raise Exception(f"Heresy: Foreign arguments must be numeric (got {type(a)})")
+                    return ctypes.c_double(float(a))
+                raise Exception(f"Heresy: Foreign arguments must be numeric (got {type(a)})")
+
+            c_args: list[object] = []
+            if callee.argtypes:
+                if len(args) != len(callee.argtypes):
+                    raise Exception(
+                        f"Invocation Error: Foreign mystery expects {len(callee.argtypes)} args but got {len(args)}"
+                    )
+                for a, ct in zip(args, callee.argtypes, strict=True):
+                    c_args.append(_marshal(a, ct))
+            else:
+                # Back-compat: all numeric doubles.
+                for a in args:
+                    c_args.append(_marshal(a, ctypes.c_double))
             if self._call_depth >= self._max_depth:
                 raise Exception("Pride: Recursion depth exceeded. Humility is required.")
             self._call_depth += 1
@@ -669,10 +730,20 @@ class LogosInterpreter(Interpreter):
         raise Exception(f"Anathema: Unknown spirit '{name}'")
 
     def _set_var(self, name: str, value: object) -> None:
+        # Best-effort dynamic scoping semantics:
+        # If the symbol already exists in any active frame, update it there.
+        # Otherwise, create a new binding in the current frame (or globals).
+        for frame in reversed(self._stack):
+            if name in frame:
+                frame[name] = value
+                return
+        if name in self._globals:
+            self._globals[name] = value
+            return
         if self._stack:
             self._stack[-1][name] = value
-        else:
-            self._globals[name] = value
+            return
+        self._globals[name] = value
 
     def _call_user_function(self, fn: UserFunction, args: list[object]) -> object:
         if len(args) != len(fn.params):

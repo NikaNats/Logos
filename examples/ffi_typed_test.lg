@@ -1,0 +1,13 @@
+# Typed FFI binding demo
+# Return/arg types declared in the apocrypha syntax.
+
+apocrypha "msvcrt" mystery cos(x: Float) -> Float;
+apocrypha "msvcrt" mystery abs(n: Int) -> Int;
+
+mystery main() {
+    inscribe pi = 3.14159;
+    proclaim cos(pi);
+
+    inscribe n = -42;
+    proclaim abs(n);
+} amen

@@ -9,7 +9,7 @@ statement: "proclaim" expr ";"                                   -> proclaim
          | "amend" mutable "=" expr ";"                          -> amend
 
          // Flow
-         | "apocrypha" STRING "mystery" NAME "(" ")" ";"         -> apocrypha
+         | "apocrypha" STRING "mystery" NAME "(" params? ")" ("->" NAME)? ";" -> apocrypha
          | "tradition" STRING ";"                                -> tradition
          | "chant" expr block "amen"                             -> chant
          | "discern" "(" expr ")" block "otherwise" block "amen" -> discernment
