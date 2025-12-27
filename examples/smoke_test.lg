@@ -1,0 +1,36 @@
+import "../lib/genesis.lg";
+
+ministry main() -> Void {
+    behold "--- LOGOS SYSTEM CHECK ---";
+
+    # 1. Check Time (Chronos)
+    gift t0 = now();
+    behold "System Time:";
+    behold t0;
+
+    # 2. Check Math
+    gift a = 10;
+    gift b = 20;
+    if (a < b) {
+        behold "Math is sound (10 < 20).";
+    } else {
+        behold "Heresy: Math is broken.";
+    } amen
+
+    # 3. Check Files (Genesis)
+    gift log = open_scroll("monastery.log", 1); # 1 = Write Mode
+
+    inspect (log) {
+        case 0: behold "Error: Could not open scroll.";
+        case _: {
+            write_line(log, "The Liturgy was performed.");
+            behold "Log written to monastery.log";
+            close_scroll(log);
+        }
+    } amen
+
+    # 4. Final Benediction
+    gift t1 = now();
+    behold "Execution Time (ms):";
+    behold (t1 - t0);
+} amen
