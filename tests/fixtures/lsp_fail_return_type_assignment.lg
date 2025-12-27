@@ -1,0 +1,8 @@
+mystery id(a: HolyInt) -> HolyInt {
+  offer a;
+} amen
+
+mystery main() {
+  inscribe x: Text = id(1);
+  proclaim x;
+} amen

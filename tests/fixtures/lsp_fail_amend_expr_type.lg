@@ -1,0 +1,5 @@
+mystery main() {
+  inscribe x: HolyInt = 1;
+  amend x = "a" + 1;
+  proclaim x;
+} amen

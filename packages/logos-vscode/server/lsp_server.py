@@ -102,6 +102,21 @@ def _type_compatible(expected: str, actual: str) -> bool:
     return expected == actual
 
 
+def _is_numeric(t: str) -> bool:
+    return t in ("HolyInt", "Int", "HolyFloat", "Float", "Double")
+
+
+def _is_text(t: str) -> bool:
+    return t in ("Text", "String")
+
+
+def _promote_numeric(a: str, b: str) -> str:
+    # Match runtime behavior: mixed int/float generally yields float-ish.
+    if a in ("HolyFloat", "Float", "Double") or b in ("HolyFloat", "Float", "Double"):
+        return "HolyFloat"
+    return "HolyInt"
+
+
 def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagnostic:
     meta = getattr(node, "meta", None)
     line0 = (getattr(meta, "line", 1) - 1) if meta else 0
@@ -134,7 +149,11 @@ def _collect_icon_schemas(tree: Tree) -> dict[str, dict[str, str]]:
 
 
 def _collect_var_types(tree: Tree) -> dict[str, str]:
-    """Collect annotated variable declarations at module level (best-effort)."""
+    """Collect annotated variable declarations (best-effort, flow-insensitive).
+
+    Note: Logos has scoping/shadowing; the LSP does not attempt full scope tracking.
+    This is a pragmatic approximation intended for early feedback.
+    """
     types: dict[str, str] = {}
 
     def walk(node: object) -> None:
@@ -155,10 +174,174 @@ def _collect_var_types(tree: Tree) -> dict[str, str]:
     return types
 
 
+def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[str | None], str | None]]:
+    """Collect mystery function signatures (param types + return type) best-effort."""
+    sigs: dict[str, tuple[list[str | None], str | None]] = {}
+
+    def walk(node: object) -> None:
+        if not isinstance(node, Tree):
+            return
+
+        if node.data == "mystery_def":
+            name = str(node.children[0])
+            idx = 1
+            param_types: list[str | None] = []
+            if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
+                params_node = node.children[idx]
+                for p in params_node.children:
+                    if not isinstance(p, Tree) or p.data != "param":
+                        continue
+                    # param: NAME (":" NAME)?
+                    if len(p.children) >= 2:
+                        param_types.append(str(p.children[1]))
+                    else:
+                        param_types.append(None)
+                idx += 1
+
+            return_type: str | None = None
+            if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
+                return_type = str(node.children[idx])
+
+            sigs[name] = (param_types, return_type)
+
+        for c in node.children:
+            walk(c)
+
+    walk(tree)
+    return sigs
+
+
+def _infer_expr_type(
+    expr: object,
+    var_types: dict[str, str],
+    func_sigs: dict[str, tuple[list[str | None], str | None]],
+    diags: list[Diagnostic],
+) -> str | None:
+    """Infer an expression type best-effort; appends diagnostics for obvious incompatibilities."""
+
+    literal = _infer_literal_type(expr)
+    if literal is not None:
+        return literal
+
+    if not isinstance(expr, Tree):
+        return None
+
+    rule = expr.data
+
+    if rule == "var":
+        name = str(expr.children[0])
+        return var_types.get(name)
+
+    if rule == "transfigure":
+        # transfigure <expr> into NAME
+        if len(expr.children) >= 2:
+            return str(expr.children[1])
+        return None
+
+    if rule in ("add", "sub", "mul", "div"):
+        left_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
+        right_t = _infer_expr_type(expr.children[1], var_types, func_sigs, diags)
+        if left_t is None or right_t is None:
+            return None
+
+        if rule == "add":
+            if _is_numeric(left_t) and _is_numeric(right_t):
+                return _promote_numeric(left_t, right_t)
+            if _is_text(left_t) and _is_text(right_t):
+                return "Text"
+            diags.append(
+                _diag_from_node(
+                    expr,
+                    f"Type mismatch: cannot add {left_t} and {right_t}.",
+                    DiagnosticSeverity.Error,
+                )
+            )
+            return None
+
+        # -, *, /
+        if not (_is_numeric(left_t) and _is_numeric(right_t)):
+            op = {"sub": "subtract", "mul": "multiply", "div": "divide"}.get(rule, "operate")
+            diags.append(
+                _diag_from_node(
+                    expr,
+                    f"Type mismatch: cannot {op} {left_t} and {right_t}.",
+                    DiagnosticSeverity.Error,
+                )
+            )
+            return None
+
+        if rule == "div":
+            return "HolyFloat"
+        return _promote_numeric(left_t, right_t)
+
+    if rule in ("eq", "ne", "lt", "gt", "le", "ge"):
+        # Comparisons yield Bool; only validate obvious numeric ordering ops.
+        left_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
+        right_t = _infer_expr_type(expr.children[1], var_types, func_sigs, diags)
+        if rule in ("lt", "gt", "le", "ge") and left_t and right_t:
+            if not (_is_numeric(left_t) and _is_numeric(right_t)):
+                diags.append(
+                    _diag_from_node(
+                        expr,
+                        f"Type mismatch: comparison '{rule}' expects numeric operands, got {left_t} and {right_t}.",
+                        DiagnosticSeverity.Error,
+                    )
+                )
+        return "Bool"
+
+    if rule == "neg":
+        inner_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
+        if inner_t and not _is_numeric(inner_t):
+            diags.append(
+                _diag_from_node(
+                    expr,
+                    f"Type mismatch: unary '-' expects numeric, got {inner_t}.",
+                    DiagnosticSeverity.Error,
+                )
+            )
+            return None
+        return inner_t
+
+    if rule == "call":
+        func_name = str(expr.children[0])
+        args_node = expr.children[1] if len(expr.children) > 1 else None
+        args: list[object] = []
+        if isinstance(args_node, Tree) and args_node.data == "args":
+            args = list(args_node.children)
+
+        sig = func_sigs.get(func_name)
+        if sig is None:
+            return None
+        param_types, ret_type = sig
+
+        # Validate args against available param types.
+        for i, arg_expr in enumerate(args):
+            if i >= len(param_types):
+                break
+            expected = param_types[i]
+            if not expected:
+                continue
+            actual = _infer_expr_type(arg_expr, var_types, func_sigs, diags)
+            if actual and not _type_compatible(expected, actual):
+                diags.append(
+                    _diag_from_node(
+                        expr,
+                        f"Type mismatch: call '{func_name}' arg {i+1} expects {expected} but got {actual}.",
+                        DiagnosticSeverity.Error,
+                    )
+                )
+
+        return ret_type
+
+    # Unknown/unsupported expression forms
+    return None
+
+
 def _typecheck(tree: Tree) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     icons = _collect_icon_schemas(tree)
     var_types = _collect_var_types(tree)
+    func_sigs = _collect_function_sigs(tree)
 
     def walk(node: object) -> None:
         if not isinstance(node, Tree):
@@ -169,7 +352,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             var_name = str(node.children[0])
             declared = str(node.children[1])
             expr = node.children[2]
-            actual = _infer_literal_type(expr)
+            actual = _infer_expr_type(expr, var_types, func_sigs, diags)
             if actual and not _type_compatible(declared, actual):
                 diags.append(
                     _diag_from_node(
@@ -183,7 +366,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
         if node.data == "amend":
             target = node.children[0]
             value_expr = node.children[1]
-            actual = _infer_literal_type(value_expr)
+            actual = _infer_expr_type(value_expr, var_types, func_sigs, diags)
             if actual and isinstance(target, Tree) and target.data == "mut_var":
                 var_name = str(target.children[0])
                 declared = var_types.get(var_name)
@@ -191,7 +374,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                     diags.append(
                         _diag_from_node(
                             node,
-                            f"Type mismatch: '{var_name}' declared {declared} but amended with {actual} literal.",
+                            f"Type mismatch: '{var_name}' declared {declared} but amended with {actual}.",
                             DiagnosticSeverity.Error,
                         )
                     )
@@ -209,15 +392,23 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                         field = str(assign.children[0])
                         expr = assign.children[1]
                         expected = schema.get(field)
-                        actual = _infer_literal_type(expr)
+                        actual = _infer_expr_type(expr, var_types, func_sigs, diags)
                         if expected and actual and not _type_compatible(expected, actual):
                             diags.append(
                                 _diag_from_node(
                                     assign,
-                                    f"Type mismatch: '{icon_name}.{field}' expects {expected} but got {actual} literal.",
+                                    f"Type mismatch: '{icon_name}.{field}' expects {expected} but got {actual}.",
                                     DiagnosticSeverity.Error,
                                 )
                             )
+
+        # Validate standalone call expressions when we can infer arg types.
+        if node.data == "call":
+            _infer_expr_type(node, var_types, func_sigs, diags)
+
+        # Validate arithmetic/comparison expressions even when not assigned.
+        if node.data in ("add", "sub", "mul", "div", "lt", "gt", "le", "ge", "neg"):
+            _infer_expr_type(node, var_types, func_sigs, diags)
 
         for c in node.children:
             walk(c)

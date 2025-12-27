@@ -1,0 +1,8 @@
+mystery id(a: HolyInt) -> HolyInt {
+  offer a;
+} amen
+
+mystery main() {
+  # should be a HolyInt
+  proclaim id("nope");
+} amen

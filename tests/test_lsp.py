@@ -56,6 +56,34 @@ class LspTests(unittest.TestCase):
         diags = lsp._typecheck(tree)
         self.assertTrue(any("Type mismatch" in d.message for d in diags))
 
+    def test_lsp_reports_call_argument_type_mismatch(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_fail_call_arg_type.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        self.assertTrue(any("call 'id'" in d.message for d in diags))
+
+    def test_lsp_reports_return_type_mismatch_on_assignment(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_fail_return_type_assignment.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        self.assertTrue(any("declared Text" in d.message for d in diags))
+
+    def test_lsp_reports_amend_expression_type_mismatch(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_fail_amend_expr_type.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        self.assertTrue(any("cannot add" in d.message or "amended" in d.message for d in diags))
+
+    def test_lsp_reports_non_numeric_operator_mismatch(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_fail_non_numeric_op.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        self.assertTrue(any("cannot subtract" in d.message for d in diags))
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main(verbosity=2)
