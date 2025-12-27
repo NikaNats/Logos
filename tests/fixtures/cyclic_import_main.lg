@@ -1,0 +1,4 @@
+mystery main() {
+  tradition "cycle_a.lg";
+  proclaim a + b;
+} amen

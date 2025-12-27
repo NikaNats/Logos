@@ -84,6 +84,21 @@ class LspTests(unittest.TestCase):
         diags = lsp._typecheck(tree)
         self.assertTrue(any("cannot subtract" in d.message for d in diags))
 
+    def test_lsp_respects_function_scopes_for_shadowing(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_scope_shadowing.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        # func_b has x: Text, so x + 1 should be flagged.
+        self.assertTrue(any("cannot add Text" in d.message for d in diags))
+
+    def test_lsp_warns_on_unreachable_code_after_offer(self) -> None:
+        lsp = _load_lsp_module()
+        src = (ROOT / "tests" / "fixtures" / "lsp_unreachable_after_offer.lg").read_text(encoding="utf-8")
+        tree = lsp.PARSER.parse(src)
+        diags = lsp._typecheck(tree)
+        self.assertTrue(any("Unreachable code" in d.message for d in diags))
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main(verbosity=2)

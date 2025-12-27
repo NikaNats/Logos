@@ -174,9 +174,9 @@ def _collect_var_types(tree: Tree) -> dict[str, str]:
     return types
 
 
-def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[str | None], str | None]]:
+def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | None]], str | None]]:
     """Collect mystery function signatures (param types + return type) best-effort."""
-    sigs: dict[str, tuple[list[str | None], str | None]] = {}
+    sigs: dict[str, tuple[list[tuple[str, str | None]], str | None]] = {}
 
     def walk(node: object) -> None:
         if not isinstance(node, Tree):
@@ -185,24 +185,25 @@ def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[str | None], str 
         if node.data == "mystery_def":
             name = str(node.children[0])
             idx = 1
-            param_types: list[str | None] = []
+            params: list[tuple[str, str | None]] = []
             if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
                 params_node = node.children[idx]
                 for p in params_node.children:
                     if not isinstance(p, Tree) or p.data != "param":
                         continue
                     # param: NAME (":" NAME)?
+                    param_name = str(p.children[0])
                     if len(p.children) >= 2:
-                        param_types.append(str(p.children[1]))
+                        params.append((param_name, str(p.children[1])))
                     else:
-                        param_types.append(None)
+                        params.append((param_name, None))
                 idx += 1
 
             return_type: str | None = None
             if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
                 return_type = str(node.children[idx])
 
-            sigs[name] = (param_types, return_type)
+            sigs[name] = (params, return_type)
 
         for c in node.children:
             walk(c)
@@ -213,8 +214,8 @@ def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[str | None], str 
 
 def _infer_expr_type(
     expr: object,
-    var_types: dict[str, str],
-    func_sigs: dict[str, tuple[list[str | None], str | None]],
+    lookup_var_type: Callable[[str], str | None],
+    func_sigs: dict[str, tuple[list[tuple[str, str | None]], str | None]],
     diags: list[Diagnostic],
 ) -> str | None:
     """Infer an expression type best-effort; appends diagnostics for obvious incompatibilities."""
@@ -230,7 +231,7 @@ def _infer_expr_type(
 
     if rule == "var":
         name = str(expr.children[0])
-        return var_types.get(name)
+        return lookup_var_type(name)
 
     if rule == "transfigure":
         # transfigure <expr> into NAME
@@ -239,8 +240,8 @@ def _infer_expr_type(
         return None
 
     if rule in ("add", "sub", "mul", "div"):
-        left_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
-        right_t = _infer_expr_type(expr.children[1], var_types, func_sigs, diags)
+        left_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
+        right_t = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
         if left_t is None or right_t is None:
             return None
 
@@ -276,8 +277,8 @@ def _infer_expr_type(
 
     if rule in ("eq", "ne", "lt", "gt", "le", "ge"):
         # Comparisons yield Bool; only validate obvious numeric ordering ops.
-        left_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
-        right_t = _infer_expr_type(expr.children[1], var_types, func_sigs, diags)
+        left_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
+        right_t = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
         if rule in ("lt", "gt", "le", "ge") and left_t and right_t:
             if not (_is_numeric(left_t) and _is_numeric(right_t)):
                 diags.append(
@@ -290,7 +291,7 @@ def _infer_expr_type(
         return "Bool"
 
     if rule == "neg":
-        inner_t = _infer_expr_type(expr.children[0], var_types, func_sigs, diags)
+        inner_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
         if inner_t and not _is_numeric(inner_t):
             diags.append(
                 _diag_from_node(
@@ -312,16 +313,16 @@ def _infer_expr_type(
         sig = func_sigs.get(func_name)
         if sig is None:
             return None
-        param_types, ret_type = sig
+        params, ret_type = sig
 
         # Validate args against available param types.
         for i, arg_expr in enumerate(args):
-            if i >= len(param_types):
+            if i >= len(params):
                 break
-            expected = param_types[i]
+            expected = params[i][1]
             if not expected:
                 continue
-            actual = _infer_expr_type(arg_expr, var_types, func_sigs, diags)
+            actual = _infer_expr_type(arg_expr, lookup_var_type, func_sigs, diags)
             if actual and not _type_compatible(expected, actual):
                 diags.append(
                     _diag_from_node(
@@ -340,11 +341,71 @@ def _infer_expr_type(
 def _typecheck(tree: Tree) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     icons = _collect_icon_schemas(tree)
-    var_types = _collect_var_types(tree)
+    module_types = _collect_var_types(tree)
     func_sigs = _collect_function_sigs(tree)
+
+    scope_stack: list[dict[str, str]] = []
+
+    def lookup_var_type(name: str) -> str | None:
+        for scope in reversed(scope_stack):
+            if name in scope:
+                return scope[name]
+        return module_types.get(name)
 
     def walk(node: object) -> None:
         if not isinstance(node, Tree):
+            return
+
+        # Provide a tiny unreachable-code warning pass at block level.
+        if node.data == "block":
+            dead = False
+            for stmt in node.children:
+                if not isinstance(stmt, Tree):
+                    continue
+
+                if dead:
+                    diags.append(
+                        _diag_from_node(
+                            stmt,
+                            "Unreachable code: statement occurs after 'offer' in the same block.",
+                            DiagnosticSeverity.Warning,
+                        )
+                    )
+                    continue
+
+                walk(stmt)
+                if stmt.data == "offer":
+                    dead = True
+            return
+
+        # Enter function scope (lexical-ish) for mystery bodies.
+        if node.data == "mystery_def":
+            local_types: dict[str, str] = {}
+
+            # Seed param types if annotated.
+            idx = 1
+            if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
+                params_node = node.children[idx]
+                for p in params_node.children:
+                    if not isinstance(p, Tree) or p.data != "param":
+                        continue
+                    if len(p.children) >= 2:
+                        local_types[str(p.children[0])] = str(p.children[1])
+                idx += 1
+
+            # Skip optional return type token.
+            if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
+                idx += 1
+
+            # Body is the next child.
+            body = node.children[idx] if idx < len(node.children) else None
+
+            scope_stack.append(local_types)
+            try:
+                if body is not None:
+                    walk(body)
+            finally:
+                scope_stack.pop()
             return
 
         # inscribe x: HolyInt = <literal>;
@@ -352,7 +413,13 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             var_name = str(node.children[0])
             declared = str(node.children[1])
             expr = node.children[2]
-            actual = _infer_expr_type(expr, var_types, func_sigs, diags)
+            # Record declared type in the current scope when inside a mystery.
+            if scope_stack:
+                scope_stack[-1][var_name] = declared
+            else:
+                module_types[var_name] = declared
+
+            actual = _infer_expr_type(expr, lookup_var_type, func_sigs, diags)
             if actual and not _type_compatible(declared, actual):
                 diags.append(
                     _diag_from_node(
@@ -366,10 +433,10 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
         if node.data == "amend":
             target = node.children[0]
             value_expr = node.children[1]
-            actual = _infer_expr_type(value_expr, var_types, func_sigs, diags)
+            actual = _infer_expr_type(value_expr, lookup_var_type, func_sigs, diags)
             if actual and isinstance(target, Tree) and target.data == "mut_var":
                 var_name = str(target.children[0])
-                declared = var_types.get(var_name)
+                declared = lookup_var_type(var_name)
                 if declared and not _type_compatible(declared, actual):
                     diags.append(
                         _diag_from_node(
@@ -392,7 +459,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                         field = str(assign.children[0])
                         expr = assign.children[1]
                         expected = schema.get(field)
-                        actual = _infer_expr_type(expr, var_types, func_sigs, diags)
+                        actual = _infer_expr_type(expr, lookup_var_type, func_sigs, diags)
                         if expected and actual and not _type_compatible(expected, actual):
                             diags.append(
                                 _diag_from_node(
@@ -404,11 +471,11 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
 
         # Validate standalone call expressions when we can infer arg types.
         if node.data == "call":
-            _infer_expr_type(node, var_types, func_sigs, diags)
+            _infer_expr_type(node, lookup_var_type, func_sigs, diags)
 
         # Validate arithmetic/comparison expressions even when not assigned.
         if node.data in ("add", "sub", "mul", "div", "lt", "gt", "le", "ge", "neg"):
-            _infer_expr_type(node, var_types, func_sigs, diags)
+            _infer_expr_type(node, lookup_var_type, func_sigs, diags)
 
         for c in node.children:
             walk(c)

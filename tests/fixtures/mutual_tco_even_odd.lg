@@ -1,0 +1,11 @@
+mystery is_even(n) {
+  discern (n is 0) { offer Verily; } otherwise { offer is_odd(n - 1); } amen
+} amen
+
+mystery is_odd(n) {
+  discern (n is 0) { offer Nay; } otherwise { offer is_even(n - 1); } amen
+} amen
+
+mystery main() {
+  proclaim is_even(10000);
+} amen

@@ -1,0 +1,5 @@
+mystery main() {
+  inscribe config = 2;
+  tradition "polluted_altar_lib.lg";
+  proclaim config;
+} amen

@@ -1,0 +1,9 @@
+mystery func_a() {
+  inscribe x: HolyInt = 5;
+  proclaim x + 1; # valid
+} amen
+
+mystery func_b() {
+  inscribe x: Text = "word";
+  proclaim x + 1; # invalid
+} amen

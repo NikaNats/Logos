@@ -138,6 +138,12 @@ class CanonTests(unittest.TestCase):
         self.assertIsNone(r.error)
         _assert_value_line(self, r.stdout, "0")
 
+    def test_tail_call_optimization_mutual_recursion(self) -> None:
+        r = _execute_fixture("mutual_tco_even_odd.lg")
+        self.assertIsNone(r.error)
+        # is_even(10000) should be True
+        _assert_value_line(self, r.stdout, "Verily")
+
     # II. Apocrypha (FFI)
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
@@ -196,6 +202,17 @@ class CanonTests(unittest.TestCase):
         r = _execute_fixture("tradition_import.lg")
         self.assertIsNone(r.error)
         _assert_value_line(self, r.stdout, "42")
+
+    def test_tradition_cyclic_imports_do_not_loop(self) -> None:
+        r = _execute_fixture("cyclic_import_main.lg")
+        self.assertIsNone(r.error)
+        _assert_value_line(self, r.stdout, "3")
+
+    def test_tradition_namespace_collision_overwrites(self) -> None:
+        r = _execute_fixture("polluted_altar_main.lg")
+        self.assertIsNone(r.error)
+        # Current semantics: imported file executes immediately in the same interpreter instance.
+        _assert_value_line(self, r.stdout, "1")
 
 
 if __name__ == "__main__":
