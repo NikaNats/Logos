@@ -1,0 +1,5 @@
+ministry main() -> Void {
+    gift a = 5;
+    gift b = 3;
+    behold (a - b);
+} amen

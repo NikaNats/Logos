@@ -1,0 +1,16 @@
+import "lib/genesis.lg";
+
+ministry main() -> Void {
+    behold "--- Standard Library Smoke Test ---";
+
+    gift t0: HolyInt = now();
+    behold t0;
+
+    gift s = open_scroll("monastery.log", 1);
+    write_line(s, "Service started");
+    close_scroll(s);
+
+    gift t1: HolyInt = now();
+    behold since(t0);
+    behold (t1 - t0);
+} amen
