@@ -58,9 +58,10 @@ GRAMMAR = r"""
             | product "*" unary -> mul
             | product "/" unary -> div
 
-        ?unary: call
-            | "witness" expr "as" NAME -> witness
-          | "listen" expr            -> listen
+        ?unary: "-" unary                 -> neg
+                    | call
+                    | "witness" expr "as" NAME -> witness
+                    | "listen" expr             -> listen
 
     ?call: access
          | NAME "(" args? ")" -> call
@@ -187,6 +188,9 @@ class LogosInterpreter(Interpreter):
 
     def sub(self, tree):
         return self.visit(tree.children[0]) - self.visit(tree.children[1])
+
+    def neg(self, tree):
+        return -self.visit(tree.children[0])
 
     def eq(self, tree):
         return self.visit(tree.children[0]) == self.visit(tree.children[1])
@@ -423,7 +427,10 @@ class LogosInterpreter(Interpreter):
             f = self._fds.get(fd_int)
             if f is None:
                 return ""
-            return f.read(int(length))
+            n = int(length)
+            if n < 0:
+                return f.read()
+            return f.read(n)
         except Exception:
             return ""
 

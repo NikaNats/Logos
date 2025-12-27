@@ -1,66 +1,30 @@
-# The Book of Genesis: Standard Library for LOGOS
-# Scrolls (File I/O), Chronos (Time), and The Cosmos (Environment)
+# The Book of Genesis (Python Version)
 
-# --- CHAPTER 1: SCROLLS (File I/O) ---
+# We directly use the intrinsics defined in logos.py:
+#   __sys_open, __sys_close, __sys_write, __sys_read, __sys_time, __sys_env
 
-structure Scroll {
-    path: Text;
-    fd: HolyInt; # 0 signifies a broken seal
+service open_scroll(path, mode) {
+    gift fd = __sys_open(path, mode);
+    offer fd;
 } amen
 
-service open_scroll(path: Text, mode: HolyInt) -> Scroll {
-    gift handle : HolyInt = __sys_open(path, mode);
-
-    offer new Scroll {
-        path = path,
-        fd = handle
-    };
+service close_scroll(fd) {
+    __sys_close(fd);
 } amen
 
-service close_scroll(s: Scroll) -> Void {
-    __sys_close(s.fd);
+service write_line(fd, txt) {
+    offer __sys_write(fd, (txt + "\n"));
 } amen
 
-service write_line(s: Scroll, content: Text) -> Bool {
-    inspect ((s.fd == 0)) {
-        case Verily: offer Nay;
-        case _: pass;
-    } amen
-
-    offer __sys_write(s.fd, (content + "\n"));
+service read_all(fd) {
+    # -1 means "until the end"
+    offer __sys_read(fd, -1);
 } amen
 
-service read_segment(s: Scroll, length: HolyInt) -> Text {
-    inspect ((s.fd == 0)) {
-        case Verily: offer "";
-        case _: pass;
-    } amen
-
-    offer __sys_read(s.fd, length);
-} amen
-
-
-# --- CHAPTER 2: CHRONOS (Time) ---
-
-service now() -> HolyInt {
+service now() {
     offer __sys_time();
 } amen
 
-service since(start_time: HolyInt) -> HolyInt {
-    gift current : HolyInt = now();
-    offer (current - start_time);
-} amen
-
-
-# --- CHAPTER 3: THE COSMOS (Environment) ---
-
-service get_env(key: Text, default_val: Text) -> Text {
-    gift val : Any = __sys_env(key);
-
-    try {
-        gift _len : HolyInt = measure(val);
-        offer val;
-    } repent e {
-        offer default_val;
-    } amen
+service get_env(key) {
+    offer __sys_env(key);
 } amen

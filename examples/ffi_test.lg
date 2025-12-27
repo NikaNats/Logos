@@ -1,0 +1,19 @@
+# Calling the foreign nations (ctypes FFI)
+# Windows: "msvcrt". Linux/macOS: likely "m".
+
+foreign "msvcrt" service cos();
+foreign "msvcrt" service sqrt();
+
+service main() {
+    behold "--- Testing the Great Commission ---";
+
+    gift pi = 3.14159;
+    gift result = cos(pi);
+
+    behold "Cos(PI) should be near -1:";
+    behold result;
+
+    gift root = sqrt(16);
+    behold "Sqrt(16):";
+    behold root;
+} amen

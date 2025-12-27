@@ -6,11 +6,10 @@ ministry main() -> Void {
     gift t0: HolyInt = now();
     behold t0;
 
-    gift s = open_scroll("monastery.log", 1);
-    write_line(s, "Service started");
-    close_scroll(s);
+    gift fd = open_scroll("monastery.log", 1);
+    write_line(fd, "Service started");
+    close_scroll(fd);
 
     gift t1: HolyInt = now();
-    behold since(t0);
     behold (t1 - t0);
 } amen
