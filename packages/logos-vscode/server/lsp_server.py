@@ -184,7 +184,9 @@ def _collect_var_types(tree: Tree) -> dict[str, str]:
     return types
 
 
-def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | None]], str | None]]:
+def _collect_function_sigs(
+    tree: Tree,
+) -> dict[str, tuple[list[tuple[str, str | None]], str | None]]:
     """Collect mystery function signatures (param types + return type) best-effort."""
     sigs: dict[str, tuple[list[tuple[str, str | None]], str | None]] = {}
 
@@ -196,7 +198,11 @@ def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | 
             name = str(node.children[0])
             idx = 1
             params: list[tuple[str, str | None]] = []
-            if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
+            if (
+                idx < len(node.children)
+                and isinstance(node.children[idx], Tree)
+                and node.children[idx].data == "params"
+            ):
                 params_node = node.children[idx]
                 for p in params_node.children:
                     if not isinstance(p, Tree) or p.data != "param":
@@ -210,7 +216,11 @@ def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | 
                 idx += 1
 
             return_type: str | None = None
-            if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
+            if (
+                idx < len(node.children)
+                and isinstance(node.children[idx], Token)
+                and node.children[idx].type == "NAME"
+            ):
                 return_type = str(node.children[idx])
 
             sigs[name] = (params, return_type)
@@ -374,7 +384,11 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
 
             # Seed param types if annotated.
             idx = 1
-            if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
+            if (
+                idx < len(node.children)
+                and isinstance(node.children[idx], Tree)
+                and node.children[idx].data == "params"
+            ):
                 params_node = node.children[idx]
                 for p in params_node.children:
                     if not isinstance(p, Tree) or p.data != "param":
@@ -384,7 +398,11 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                 idx += 1
 
             # Skip optional return type token.
-            if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
+            if (
+                idx < len(node.children)
+                and isinstance(node.children[idx], Token)
+                and node.children[idx].type == "NAME"
+            ):
                 idx += 1
 
             # Body is the next child.
@@ -449,8 +467,14 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                         field = str(assign.children[0])
                         expr = assign.children[1]
                         expected = schema.get(field)
-                        actual = _infer_expr_type(expr, lookup_var_type, func_sigs, diags)
-                        if expected and actual and not TypeCanon.are_compatible(expected, actual):
+                        actual = _infer_expr_type(
+                            expr, lookup_var_type, func_sigs, diags
+                        )
+                        if (
+                            expected
+                            and actual
+                            and not TypeCanon.are_compatible(expected, actual)
+                        ):
                             diags.append(
                                 _diag_from_node(
                                     assign,

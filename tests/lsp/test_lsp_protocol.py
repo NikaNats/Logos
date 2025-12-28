@@ -6,7 +6,9 @@ pytest_lsp = pytest.importorskip("pytest_lsp")
 
 
 class LspProtocolSmokeTests(unittest.TestCase):
-    @pytest.mark.skip("Protocol exercise requires pytest-lsp wiring; placeholder for future integration.")
+    @pytest.mark.skip(
+        "Protocol exercise requires pytest-lsp wiring; placeholder for future integration."
+    )
     def test_protocol_placeholder(self) -> None:  # pragma: no cover
         assert True
 

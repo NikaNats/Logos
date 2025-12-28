@@ -51,12 +51,16 @@ class EntrypointCoverageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "prog.lg")
             with open(path, "w", encoding="utf-8") as f:
-                f.write('proclaim 1;\n')
+                f.write("proclaim 1;\n")
 
             buf = io.StringIO()
             with (
                 patch.object(logos.sys, "argv", ["logos.py", path]),
-                patch.object(logos.sys, "exit", side_effect=AssertionError("exit should not be called")),
+                patch.object(
+                    logos.sys,
+                    "exit",
+                    side_effect=AssertionError("exit should not be called"),
+                ),
                 redirect_stdout(buf),
             ):
                 logos.main()
@@ -68,7 +72,11 @@ class EntrypointCoverageTests(unittest.TestCase):
         with (
             patch.object(logos, "run_repl", lambda _interp: None),
             patch.object(logos.sys, "argv", ["logos.py"]),
-            patch.object(logos.sys, "exit", side_effect=AssertionError("exit should not be called")),
+            patch.object(
+                logos.sys,
+                "exit",
+                side_effect=AssertionError("exit should not be called"),
+            ),
             redirect_stdout(buf),
         ):
             logos.main()
@@ -83,7 +91,11 @@ class EntrypointCoverageTests(unittest.TestCase):
             buf = io.StringIO()
             with (
                 patch.object(logos.sys, "argv", ["logos.py", path]),
-                patch.object(logos.sys, "exit", side_effect=AssertionError("exit should not be called")),
+                patch.object(
+                    logos.sys,
+                    "exit",
+                    side_effect=AssertionError("exit should not be called"),
+                ),
                 redirect_stdout(buf),
             ):
                 logos.main()

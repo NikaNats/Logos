@@ -106,14 +106,18 @@ LOGOS_GRAMMAR = r"""
 # 2. Domain Models & Exceptions
 # ==========================================
 
+
 class LogosError(Exception):
     """Base exception for the runtime."""
+
     pass
 
 
 class SecurityError(LogosError):
     """Raised when a program attempts a forbidden action."""
+
     pass
+
 
 @dataclass
 class SecurityContext:
@@ -124,6 +128,7 @@ class SecurityContext:
     - whitelist: mapping of library name -> allowed function names.
     - allow_unsafe_pointers: when False, pointer-like types are rejected.
     """
+
     allow_ffi: bool = False
     whitelist: Dict[str, Set[str]] = field(default_factory=dict)
     allow_unsafe_pointers: bool = False
@@ -153,6 +158,7 @@ class SecurityContext:
 @dataclass(frozen=True)
 class TailCall:
     """Represents a tail-position call that can be executed without growing the Python stack."""
+
     func: "UserFunction"
     args: List[Any]
 
@@ -160,18 +166,23 @@ class TailCall:
 @dataclass(frozen=True)
 class ReturnValue:
     """Sentinel to propagate function returns without raising exceptions."""
+
     value: Any
+
 
 @dataclass
 class ForeignFunction:
     """Represents a bound C-library function."""
+
     func: Any
     restype: Any
     argtypes: List[Any]
 
+
 @dataclass(frozen=True)
 class UserFunction:
     """Represents a function defined in Logos."""
+
     name: str
     params: List[str]
     body: Any
@@ -180,23 +191,27 @@ class UserFunction:
 @dataclass(frozen=True)
 class ModuleFunction:
     """Binds a user-defined function to the interpreter that owns its globals."""
+
     func: UserFunction
     interpreter: "LogosInterpreter"
     exports: Dict[str, Any]
 
+
 # ==========================================
 # 3. Component Managers (The "Spirits")
 # ==========================================
+
 
 class ScopeManager:
     """
     Manages variables, globals, and the call stack.
     Implements variable resolution strategy (Local -> Global -> Builtin).
     """
+
     def __init__(self):
         self.globals: Dict[str, Any] = {}
         self.stack: List[Dict[str, Any]] = []
-        
+
     def push_frame(self, frame: Dict[str, Any]) -> None:
         self.stack.append(frame)
 
@@ -212,7 +227,7 @@ class ScopeManager:
         # Check Globals
         if name in self.globals:
             return self.globals[name]
-        
+
         raise LogosError(f"Heresy: Unknown spirit '{name}'")
 
     def set(self, name: str, value: Any) -> None:
@@ -225,12 +240,13 @@ class ScopeManager:
         if name in self.globals:
             self.globals[name] = value
             return
-        
+
         # Define new: if in function, local; otherwise global
         if self.stack:
             self.stack[-1][name] = value
         else:
             self.globals[name] = value
+
     def mutate(self, name: str, value: Any) -> None:
         """Update an existing binding; raise if it does not exist in any scope."""
         for frame in reversed(self.stack):
@@ -280,10 +296,16 @@ class FFIManager:
             )
 
         mapping = {
-            "HolyFloat": ctypes.c_double, "Float": ctypes.c_double, "Double": ctypes.c_double,
-            "HolyInt": ctypes.c_longlong, "Int": ctypes.c_longlong,
-            "Bool": ctypes.c_bool, "Verily": ctypes.c_bool, "Nay": ctypes.c_bool,
-            "Text": ctypes.c_char_p, "String": ctypes.c_char_p
+            "HolyFloat": ctypes.c_double,
+            "Float": ctypes.c_double,
+            "Double": ctypes.c_double,
+            "HolyInt": ctypes.c_longlong,
+            "Int": ctypes.c_longlong,
+            "Bool": ctypes.c_bool,
+            "Verily": ctypes.c_bool,
+            "Nay": ctypes.c_bool,
+            "Text": ctypes.c_char_p,
+            "String": ctypes.c_char_p,
         }
         return mapping.get(type_name, ctypes.c_double)
 
@@ -292,8 +314,13 @@ class FFIManager:
             raise SecurityError("Apocrypha (FFI) is disabled by system dogma.")
 
         clean = self._clean_lib_name(lib_name)
-        if lib_name not in self.security.whitelist and clean not in self.security.whitelist:
-            raise SecurityError(f"Security Violation: Library '{lib_name}' is not permitted.")
+        if (
+            lib_name not in self.security.whitelist
+            and clean not in self.security.whitelist
+        ):
+            raise SecurityError(
+                f"Security Violation: Library '{lib_name}' is not permitted."
+            )
 
         if lib_name.lower().endswith((".dll", ".so", ".dylib")):
             filename = lib_name
@@ -309,14 +336,22 @@ class FFIManager:
                 self.libs[filename] = ctypes.CDLL(filename)
             except OSError as e:
                 raise LogosError(f"Schism: Could not bind Apocrypha '{filename}': {e}")
-        
+
         return filename
 
-    def bind_function(self, lib_name: str, func_name: str, arg_types: List[str], ret_type: str) -> ForeignFunction:
+    def bind_function(
+        self, lib_name: str, func_name: str, arg_types: List[str], ret_type: str
+    ) -> ForeignFunction:
         clean = self._clean_lib_name(lib_name)
-        allowed_funcs = self.security.whitelist.get(lib_name) or self.security.whitelist.get(clean) or set()
+        allowed_funcs = (
+            self.security.whitelist.get(lib_name)
+            or self.security.whitelist.get(clean)
+            or set()
+        )
         if func_name not in allowed_funcs:
-            raise SecurityError(f"Security Violation: Function '{func_name}' in '{lib_name}' is forbidden.")
+            raise SecurityError(
+                f"Security Violation: Function '{func_name}' in '{lib_name}' is forbidden."
+            )
 
         filename = self.load_library(lib_name)
         lib = self.libs[filename]
@@ -324,13 +359,13 @@ class FFIManager:
             func = getattr(lib, func_name)
         except AttributeError:
             raise LogosError(f"Schism: Symbol '{func_name}' not found in '{filename}'.")
-        
+
         c_restype = self.get_ctype(ret_type)
         c_argtypes = [self.get_ctype(t) for t in arg_types]
-        
+
         func.restype = c_restype
         func.argtypes = c_argtypes
-        
+
         return ForeignFunction(func, c_restype, c_argtypes)
 
     def marshal_args(self, args: List[Any], definition: ForeignFunction) -> List[Any]:
@@ -366,6 +401,7 @@ class StdLib:
     """
     Registry of Standard Library functions (System Intrinsics).
     """
+
     def __init__(self, base_path: str):
         self.base_path = base_path
         self._fds: Dict[int, TextIO] = {}
@@ -375,23 +411,23 @@ class StdLib:
         # Time & Env
         scope.register_builtin("now", lambda: int(time.time() * 1000))
         scope.register_builtin("env", lambda k: os.environ.get(str(k), ""))
-        
+
         # System control
         scope.register_builtin("__sys_sleep", lambda ms: time.sleep(float(ms) / 1000.0))
         scope.register_builtin("__sys_exit", lambda c: sys.exit(int(c)))
-        
+
         # IO
         scope.register_builtin("__sys_open", self._open)
         scope.register_builtin("__sys_close", self._close)
         scope.register_builtin("__sys_write", self._write)
         scope.register_builtin("__sys_read", self._read)
-        
+
         # Lists
         scope.register_builtin("measure", self._measure)
         scope.register_builtin("append", self._append)
         scope.register_builtin("extract", self._extract)
         scope.register_builtin("purge", self._purge)
-        
+
         # Types
         scope.register_builtin("__sys_str", str)
         scope.register_builtin("argv", sys.argv[2:] if len(sys.argv) > 2 else [])
@@ -412,7 +448,8 @@ class StdLib:
 
     def _close(self, fd: int):
         f = self._fds.pop(int(fd), None)
-        if f: f.close()
+        if f:
+            f.close()
 
     def _write(self, fd: int, content: str):
         f = self._fds.get(int(fd))
@@ -424,16 +461,18 @@ class StdLib:
 
     def _read(self, fd: int, length: int):
         f = self._fds.get(int(fd))
-        if not f: return ""
+        if not f:
+            return ""
         return f.read() if int(length) < 0 else f.read(int(length))
 
     @staticmethod
     def _measure(x: Any) -> int:
-        return len(x) if hasattr(x, '__len__') else 0
+        return len(x) if hasattr(x, "__len__") else 0
 
     @staticmethod
     def _append(lst: List, item: Any):
-        if isinstance(lst, list): lst.append(item)
+        if isinstance(lst, list):
+            lst.append(item)
         return lst
 
     @staticmethod
@@ -442,7 +481,8 @@ class StdLib:
 
     @staticmethod
     def _purge(lst: List):
-        if isinstance(lst, list): lst.clear()
+        if isinstance(lst, list):
+            lst.clear()
 
 
 class Module:
@@ -486,7 +526,9 @@ class ModuleManager:
             return self._modules[abs_path]
 
         if abs_path in self._loading:
-            print(f"\u2629 Cycle detected importing {rel_path}. Returning partial spirit.")
+            print(
+                f"\u2629 Cycle detected importing {rel_path}. Returning partial spirit."
+            )
             return Module(abs_path, {})
 
         if not os.path.exists(abs_path):
@@ -498,7 +540,11 @@ class ModuleManager:
                 source = f.read()
 
             security = getattr(self, "security", SecurityContext.strict())
-            child_interp = LogosInterpreter(base_path=os.path.dirname(abs_path), module_manager=self, security=security)
+            child_interp = LogosInterpreter(
+                base_path=os.path.dirname(abs_path),
+                module_manager=self,
+                security=security,
+            )
             child_interp._current_file = abs_path
 
             tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(source)
@@ -557,7 +603,10 @@ class TypeCanon:
         if declared == actual:
             return True
 
-        if declared in ("HolyFloat", "Float", "Double") and actual in ("HolyInt", "Int"):
+        if declared in ("HolyFloat", "Float", "Double") and actual in (
+            "HolyInt",
+            "Int",
+        ):
             return True
 
         if declared in cls.TEXT and actual in cls.TEXT:
@@ -567,7 +616,11 @@ class TypeCanon:
             return True
 
         if declared in cls.NUMERIC and actual in cls.NUMERIC:
-            if declared in ("HolyInt", "Int") and actual in ("HolyFloat", "Float", "Double"):
+            if declared in ("HolyInt", "Int") and actual in (
+                "HolyFloat",
+                "Float",
+                "Double",
+            ):
                 return False
             return True
 
@@ -597,14 +650,21 @@ class TypeCanon:
 
         return None
 
+
 # ==========================================
 # 4. The Interpreter (AST Visitor)
 # ==========================================
 
+
 class LogosInterpreter(Interpreter):
-    def __init__(self, base_path: Optional[str] = None, module_manager: Optional[ModuleManager] = None, security: Optional[SecurityContext] = None):
+    def __init__(
+        self,
+        base_path: Optional[str] = None,
+        module_manager: Optional[ModuleManager] = None,
+        security: Optional[SecurityContext] = None,
+    ):
         self.base_path = os.path.abspath(base_path or os.getcwd())
-        
+
         # Helpers
         self.security = security if security is not None else SecurityContext.strict()
         self.scope = ScopeManager()
@@ -612,7 +672,7 @@ class LogosInterpreter(Interpreter):
         self.stdlib = StdLib(self.base_path)
         self.module_manager = module_manager if module_manager else ModuleManager()
         self.module_manager.security = self.security
-        
+
         # State
         self.stdlib.register_into(self.scope)
         self._builtin_snapshot: Dict[str, Any] = dict(self.scope.globals)
@@ -628,7 +688,9 @@ class LogosInterpreter(Interpreter):
         # Keep Python's recursion limit >= our policy limit so we fail with LogosError
         # instead of a surprise RecursionError for moderately deep programs.
         try:
-            sys.setrecursionlimit(max(sys.getrecursionlimit(), self._max_recursion + 200))
+            sys.setrecursionlimit(
+                max(sys.getrecursionlimit(), self._max_recursion + 200)
+            )
         except Exception:
             pass
 
@@ -637,7 +699,7 @@ class LogosInterpreter(Interpreter):
         self._re_func = re.compile(r"^[a-z][a-z0-9_]*$")
 
     # --- Root Statements ---
-    
+
     def proclaim(self, tree):
         val = self.visit(tree.children[0])
         prefix = "Verily" if val is True else "Nay" if val is False else str(val)
@@ -732,8 +794,12 @@ class LogosInterpreter(Interpreter):
         rel_path = str(tree.children[0])[1:-1]
         alias = str(tree.children[1]) if len(tree.children) > 1 else None
 
-        requestor = getattr(self, "_current_file", os.path.join(self.base_path, "__main__.lg"))
-        module = self.module_manager.load_module(requestor_path=requestor, rel_path=rel_path)
+        requestor = getattr(
+            self, "_current_file", os.path.join(self.base_path, "__main__.lg")
+        )
+        module = self.module_manager.load_module(
+            requestor_path=requestor, rel_path=rel_path
+        )
 
         for name, type_name in module.types.items():
             self._declare_type(name, type_name)
@@ -756,36 +822,48 @@ class LogosInterpreter(Interpreter):
         name = str(tree.children[0])
         if not self._re_func.fullmatch(name):
             raise LogosError(f"Canon Error: Mystery name '{name}' must be snake_case.")
-        
+
         # Parse params (index 1 if present)
         idx = 1
         params = []
-        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
+        if (
+            idx < len(tree.children)
+            and getattr(tree.children[idx], "data", "") == "params"
+        ):
             params = [str(p.children[0]) for p in tree.children[idx].children]
             idx += 1
-        
+
         # Skip return type hint if present
-        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
+        if (
+            idx < len(tree.children)
+            and getattr(tree.children[idx], "type", "") == "NAME"
+        ):
             idx += 1
-            
+
         body = tree.children[idx]
         self.scope.register_builtin(name, UserFunction(name, params, body))
 
     def apocrypha(self, tree):
         lib_str = str(tree.children[0])[1:-1]
         func_name = str(tree.children[1])
-        
+
         # Extract arg types
         idx = 2
         arg_types = []
-        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
+        if (
+            idx < len(tree.children)
+            and getattr(tree.children[idx], "data", "") == "params"
+        ):
             for p in tree.children[idx].children:
                 arg_types.append(str(p.children[1]) if len(p.children) > 1 else "Float")
             idx += 1
-            
+
         # Extract return type
         ret_type = "Float"
-        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
+        if (
+            idx < len(tree.children)
+            and getattr(tree.children[idx], "type", "") == "NAME"
+        ):
             ret_type = str(tree.children[idx])
 
         func_def = self.ffi.bind_function(lib_str, func_name, arg_types, ret_type)
@@ -832,7 +910,9 @@ class LogosInterpreter(Interpreter):
         current_func = func
         current_args = args
         tail_hops = 0
-        tail_limit = max(int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100)
+        tail_limit = max(
+            int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100
+        )
         while True:
             if len(current_args) != len(current_func.params):
                 raise LogosError(
@@ -862,7 +942,9 @@ class LogosInterpreter(Interpreter):
     def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]):
         # If the apocrypha declaration provided arg types, enforce arity.
         if func.argtypes and len(args) != len(func.argtypes):
-            raise LogosError(f"Invocation Error: Foreign function expects {len(func.argtypes)} args.")
+            raise LogosError(
+                f"Invocation Error: Foreign function expects {len(func.argtypes)} args."
+            )
 
         # If arg types were omitted in the declaration, infer them from the call site.
         if not func.argtypes and args:
@@ -901,13 +983,15 @@ class LogosInterpreter(Interpreter):
         if schema:
             for field_name, field_type in schema.items():
                 if field_name in values:
-                    self._enforce_value_type(values[field_name], field_type, context=f"{name}.{field_name}")
+                    self._enforce_value_type(
+                        values[field_name], field_type, context=f"{name}.{field_name}"
+                    )
         obj.update(values)
         return obj
 
     def assign_list(self, tree):
         return [self.visit(c) for c in tree.children]
-    
+
     def assign(self, tree):
         return (str(tree.children[0]), self.visit(tree.children[1]))
 
@@ -915,7 +999,7 @@ class LogosInterpreter(Interpreter):
 
     def _perform_mutation(self, node, value):
         rule = getattr(node, "data", None)
-        
+
         if rule == "mut_var":
             name = str(node.children[0])
             self._enforce_declared_type(name, value)
@@ -926,7 +1010,8 @@ class LogosInterpreter(Interpreter):
             if isinstance(container, dict):
                 self._enforce_icon_field_type(container, name, value)
                 container[name] = value
-            else: setattr(container, name, value)
+            else:
+                setattr(container, name, value)
         elif rule == "mut_item":
             container = self._evaluate_mutable_target(node.children[0])
             idx = self.visit(node.children[1])
@@ -969,7 +1054,9 @@ class LogosInterpreter(Interpreter):
             return
         self._enforce_value_type(value, declared, context=name)
 
-    def _enforce_icon_field_type(self, container: dict, field_name: str, value: Any) -> None:
+    def _enforce_icon_field_type(
+        self, container: dict, field_name: str, value: Any
+    ) -> None:
         icon_name = container.get("__icon__")
         if not icon_name:
             return
@@ -984,7 +1071,13 @@ class LogosInterpreter(Interpreter):
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
         actual_type = TypeCanon.get_type_of_value(value)
 
-        known_decl = TypeCanon.NUMERIC | TypeCanon.TEXT | TypeCanon.BOOL | TypeCanon.LIST | TypeCanon.VOID
+        known_decl = (
+            TypeCanon.NUMERIC
+            | TypeCanon.TEXT
+            | TypeCanon.BOOL
+            | TypeCanon.LIST
+            | TypeCanon.VOID
+        )
         if actual_type == "Mystery":
             # If the declared type is one of the known canon types, treat unknown values as mismatches.
             if type_name in known_decl:
@@ -1002,10 +1095,15 @@ class LogosInterpreter(Interpreter):
     def _evaluate_mutable_target(self, node):
         # Recursively resolve the object being mutated
         rule = getattr(node, "data", None)
-        if rule == "mut_var": return self.scope.get(str(node.children[0]))
+        if rule == "mut_var":
+            return self.scope.get(str(node.children[0]))
         if rule == "mut_attr":
             obj = self._evaluate_mutable_target(node.children[0])
-            return obj.get(str(node.children[1])) if isinstance(obj, dict) else getattr(obj, str(node.children[1]))
+            return (
+                obj.get(str(node.children[1]))
+                if isinstance(obj, dict)
+                else getattr(obj, str(node.children[1]))
+            )
         if rule == "mut_item":
             obj = self._evaluate_mutable_target(node.children[0])
             idx = self.visit(node.children[1])
@@ -1041,32 +1139,58 @@ class LogosInterpreter(Interpreter):
 
     def string(self, tree):
         return str(tree.children[0])[1:-1].replace("\\n", "\n")
-    
+
     def procession(self, tree):
         return [self.visit(c) for c in tree.children]
 
-    def verily(self, _): return True
-    def nay(self, _): return False
-    
-    def add(self, t): return self.visit(t.children[0]) + self.visit(t.children[1])
-    def sub(self, t): return self.visit(t.children[0]) - self.visit(t.children[1])
-    def mul(self, t): return self.visit(t.children[0]) * self.visit(t.children[1])
-    def div(self, t): return self.visit(t.children[0]) / self.visit(t.children[1])
-    def neg(self, t): return -self.visit(t.children[0])
-    
-    def eq(self, t): return self.visit(t.children[0]) == self.visit(t.children[1])
-    def ne(self, t): return self.visit(t.children[0]) != self.visit(t.children[1])
-    def lt(self, t): return self.visit(t.children[0]) < self.visit(t.children[1])
-    def gt(self, t): return self.visit(t.children[0]) > self.visit(t.children[1])
-    def le(self, t): return self.visit(t.children[0]) <= self.visit(t.children[1])
-    def ge(self, t): return self.visit(t.children[0]) >= self.visit(t.children[1])
+    def verily(self, _):
+        return True
+
+    def nay(self, _):
+        return False
+
+    def add(self, t):
+        return self.visit(t.children[0]) + self.visit(t.children[1])
+
+    def sub(self, t):
+        return self.visit(t.children[0]) - self.visit(t.children[1])
+
+    def mul(self, t):
+        return self.visit(t.children[0]) * self.visit(t.children[1])
+
+    def div(self, t):
+        return self.visit(t.children[0]) / self.visit(t.children[1])
+
+    def neg(self, t):
+        return -self.visit(t.children[0])
+
+    def eq(self, t):
+        return self.visit(t.children[0]) == self.visit(t.children[1])
+
+    def ne(self, t):
+        return self.visit(t.children[0]) != self.visit(t.children[1])
+
+    def lt(self, t):
+        return self.visit(t.children[0]) < self.visit(t.children[1])
+
+    def gt(self, t):
+        return self.visit(t.children[0]) > self.visit(t.children[1])
+
+    def le(self, t):
+        return self.visit(t.children[0]) <= self.visit(t.children[1])
+
+    def ge(self, t):
+        return self.visit(t.children[0]) >= self.visit(t.children[1])
 
     def transfigure(self, tree):
         val = self.visit(tree.children[0])
         target_type = str(tree.children[1])
-        if target_type in ("HolyInt", "Int"): return int(val)
-        if target_type in ("HolyFloat", "Float"): return float(val)
-        if target_type in ("Text", "String"): return str(val)
+        if target_type in ("HolyInt", "Int"):
+            return int(val)
+        if target_type in ("HolyFloat", "Float"):
+            return float(val)
+        if target_type in ("Text", "String"):
+            return str(val)
         return val
 
     def supplicate(self, tree):
@@ -1081,26 +1205,34 @@ class LogosInterpreter(Interpreter):
                 return self.visit(body_node)
         return None
 
-    def wildcard(self, _): return "__WILDCARD__"
-    def case_clause(self, tree): return tree # Handled in contemplation
-    def atom(self, tree): return self.visit(tree.children[0]) if tree.children else None
+    def wildcard(self, _):
+        return "__WILDCARD__"
+
+    def case_clause(self, tree):
+        return tree  # Handled in contemplation
+
+    def atom(self, tree):
+        return self.visit(tree.children[0]) if tree.children else None
 
 
 # ==========================================
 # 5. Entry Point & Interface
 # ==========================================
 
+
 def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
     print("☩ Logos Interactive Confessional v2.0 ☩")
     print("☩ Type 'silence;' to pass, 'exit' to depart.")
-    
+
     parser = Lark(LOGOS_GRAMMAR, parser="lalr", start="statement")
-    
+
     while True:
         try:
             text = input(">> ").strip()
-            if not text: continue
-            if text in ("exit", "quit", "depart(0);"): break
+            if not text:
+                continue
+            if text in ("exit", "quit", "depart(0);"):
+                break
 
             tree = parser.parse(text)
             result = interpreter.visit(tree)
@@ -1112,15 +1244,31 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
         except (LogosError, Exception) as e:
             print(f"Anathema: {e}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Logos Liturgical Interpreter")
     parser.add_argument("script", nargs="?", help="Path to the liturgy file")
-    parser.add_argument("--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings (dangerous)")
-    parser.add_argument("--allow-lib", action="append", default=[], help="Whitelist an additional library for FFI")
-    parser.add_argument("--allow-unsafe-pointers", action="store_true", help="Allow pointer-like FFI types such as Text/String")
+    parser.add_argument(
+        "--unsafe-ffi",
+        action="store_true",
+        help="Enable permissive FFI bindings (dangerous)",
+    )
+    parser.add_argument(
+        "--allow-lib",
+        action="append",
+        default=[],
+        help="Whitelist an additional library for FFI",
+    )
+    parser.add_argument(
+        "--allow-unsafe-pointers",
+        action="store_true",
+        help="Allow pointer-like FFI types such as Text/String",
+    )
     args = parser.parse_args()
 
-    security = SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
+    security = (
+        SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
+    )
 
     if args.allow_lib:
         security.allow_ffi = True
@@ -1128,7 +1276,9 @@ def main():
             if lib not in security.whitelist:
                 security.whitelist[lib] = set()
         if any(len(security.whitelist.get(lib, set())) == 0 for lib in args.allow_lib):
-            print("☩ Warning: Library allowed via CLI but no functions whitelisted; calls will still be blocked.")
+            print(
+                "☩ Warning: Library allowed via CLI but no functions whitelisted; calls will still be blocked."
+            )
 
     if args.allow_unsafe_pointers:
         security.allow_unsafe_pointers = True
@@ -1141,13 +1291,13 @@ def main():
 
     entry_path = os.path.abspath(args.script)
     interpreter.base_path = os.path.dirname(entry_path)
-    interpreter.stdlib.base_path = interpreter.base_path # Sync paths
+    interpreter.stdlib.base_path = interpreter.base_path  # Sync paths
     interpreter._current_file = entry_path
 
     try:
         with open(entry_path, "r", encoding="utf-8") as f:
             source = f.read()
-        
+
         parser = Lark(LOGOS_GRAMMAR, parser="lalr")
         interpreter.visit(parser.parse(source))
 
@@ -1165,6 +1315,7 @@ def main():
         except UnicodeEncodeError:
             print(f"FATAL ERROR\n{e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

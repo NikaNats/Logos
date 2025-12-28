@@ -13,7 +13,9 @@ import logos
 
 
 class RuntimeInternalsTests(unittest.TestCase):
-    def _run_program(self, source: str, base_path: str | None = None) -> tuple[logos.LogosInterpreter, str]:
+    def _run_program(
+        self, source: str, base_path: str | None = None
+    ) -> tuple[logos.LogosInterpreter, str]:
         interp = logos.LogosInterpreter(base_path=base_path)
         interp._current_file = os.path.join(interp.base_path, "__test__.lg")
         parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr")
@@ -23,7 +25,9 @@ class RuntimeInternalsTests(unittest.TestCase):
             interp.visit(tree)
         return interp, buf.getvalue()
 
-    def _make_security(self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True) -> logos.SecurityContext:
+    def _make_security(
+        self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True
+    ) -> logos.SecurityContext:
         libs = libs or [
             "mylib",
             "winlib",
@@ -34,9 +38,15 @@ class RuntimeInternalsTests(unittest.TestCase):
             "definitely_not_a_real_library_12345",
         ]
         whitelist = {name: set() for name in libs}
-        return logos.SecurityContext(allow_ffi=True, whitelist=whitelist, allow_unsafe_pointers=allow_unsafe_pointers)
+        return logos.SecurityContext(
+            allow_ffi=True,
+            whitelist=whitelist,
+            allow_unsafe_pointers=allow_unsafe_pointers,
+        )
 
-    def _make_ffi(self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True) -> logos.FFIManager:
+    def _make_ffi(
+        self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True
+    ) -> logos.FFIManager:
         return logos.FFIManager(self._make_security(libs, allow_unsafe_pointers))
 
     def test_scope_manager_get_set_declare(self) -> None:
@@ -117,7 +127,11 @@ class RuntimeInternalsTests(unittest.TestCase):
     def test_ffi_marshal_args_bytes_and_numbers(self) -> None:
         ffi = self._make_ffi()
         # Create a dummy ForeignFunction definition for marshalling only.
-        dummy = logos.ForeignFunction(func=None, restype=ctypes.c_double, argtypes=[ctypes.c_char_p, ctypes.c_double, ctypes.c_longlong])
+        dummy = logos.ForeignFunction(
+            func=None,
+            restype=ctypes.c_double,
+            argtypes=[ctypes.c_char_p, ctypes.c_double, ctypes.c_longlong],
+        )
         out = ffi.marshal_args([b"hi", 1.5, 7], dummy)
         self.assertEqual(out[0], b"hi")
         self.assertEqual(out[1], 1.5)
@@ -125,7 +139,9 @@ class RuntimeInternalsTests(unittest.TestCase):
 
     def test_ffi_marshal_args_else_branch(self) -> None:
         ffi = self._make_ffi()
-        dummy = logos.ForeignFunction(func=None, restype=ctypes.c_double, argtypes=[ctypes.c_bool])
+        dummy = logos.ForeignFunction(
+            func=None, restype=ctypes.c_double, argtypes=[ctypes.c_bool]
+        )
         out = ffi.marshal_args([True], dummy)
         self.assertEqual(out, [True])
 
@@ -181,6 +197,7 @@ class RuntimeInternalsTests(unittest.TestCase):
     def test_interpreter_init_handles_recursionlimit_failure(self) -> None:
         original = logos.sys.setrecursionlimit
         try:
+
             def boom(_):
                 raise Exception("nope")
 
@@ -355,13 +372,17 @@ class RuntimeInternalsTests(unittest.TestCase):
 
         # list item
         interp.scope.set("lst", [1, 2, 3])
-        idx_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse("1")
+        idx_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
+            "1"
+        )
         node2 = Node("mut_item", [Node("mut_var", ["lst"]), idx_tree])
         # The index is a parse tree; visit will return int.
         self.assertEqual(interp._evaluate_mutable_target(node2), 2)
 
         # Fallback branch: visit the node directly
-        expr_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse("1")
+        expr_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
+            "1"
+        )
         self.assertEqual(interp._evaluate_mutable_target(expr_tree), 1)
 
     def test_transfigure_unknown_type_returns_value(self) -> None:
