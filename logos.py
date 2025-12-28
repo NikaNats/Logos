@@ -115,12 +115,6 @@ class SecurityError(LogosError):
     """Raised when a program attempts a forbidden action."""
     pass
 
-class ReturnSignal(Exception):
-    """Control flow signal for returning values from functions."""
-    def __init__(self, value: Any):
-        self.value = value
-
-
 @dataclass
 class SecurityContext:
     """
@@ -161,6 +155,12 @@ class TailCall:
     """Represents a tail-position call that can be executed without growing the Python stack."""
     func: "UserFunction"
     args: List[Any]
+
+
+@dataclass(frozen=True)
+class ReturnValue:
+    """Sentinel to propagate function returns without raising exceptions."""
+    value: Any
 
 @dataclass
 class ForeignFunction:
@@ -231,7 +231,6 @@ class ScopeManager:
             self.stack[-1][name] = value
         else:
             self.globals[name] = value
-
     def mutate(self, name: str, value: Any) -> None:
         """Update an existing binding; raise if it does not exist in any scope."""
         for frame in reversed(self.stack):
@@ -682,25 +681,29 @@ class LogosInterpreter(Interpreter):
         result = None
         for stmt in tree.children:
             result = self.visit(stmt)
+            if isinstance(result, ReturnValue):
+                return result
         return result
 
     def discernment(self, tree):
         condition, then_block, else_block = tree.children
         if self.visit(condition):
-            return self.visit(then_block)
-        return self.visit(else_block)
+            result = self.visit(then_block)
+            return result
+        result = self.visit(else_block)
+        return result
 
     def chant(self, tree):
         condition, body = tree.children
         while self.visit(condition):
-            self.visit(body)
+            result = self.visit(body)
+            if isinstance(result, ReturnValue):
+                return result
 
     def vigil(self, tree):
         try_blk, err_var, catch_blk = tree.children
         try:
             return self.visit(try_blk)
-        except ReturnSignal:
-            raise
         except Exception as e:
             self.scope.set(str(err_var), str(e))
             return self.visit(catch_blk)
@@ -716,9 +719,9 @@ class LogosInterpreter(Interpreter):
             args = [self.visit(c) for c in args_node.children] if args_node else []
             spirit = self.scope.get(func_name)
             if isinstance(spirit, UserFunction):
-                raise ReturnSignal(TailCall(spirit, args))
+                return ReturnValue(TailCall(spirit, args))
 
-        raise ReturnSignal(self.visit(expr))
+        return ReturnValue(self.visit(expr))
 
     def silence(self, tree):
         return None
@@ -842,14 +845,16 @@ class LogosInterpreter(Interpreter):
             self.scope.push_frame(dict(zip(current_func.params, current_args)))
             self._type_stack.append({})
             try:
-                return self.visit(current_func.body)
-            except ReturnSignal as s:
-                if isinstance(s.value, TailCall):
-                    current_func = s.value.func
-                    current_args = s.value.args
-                    tail_hops += 1
-                    continue
-                return s.value
+                result = self.visit(current_func.body)
+                if isinstance(result, ReturnValue):
+                    value = result.value
+                    if isinstance(value, TailCall):
+                        current_func = value.func
+                        current_args = value.args
+                        tail_hops += 1
+                        continue
+                    return value
+                return result
             finally:
                 self._type_stack.pop()
                 self.scope.pop_frame()
@@ -1010,6 +1015,11 @@ class LogosInterpreter(Interpreter):
     def get_attr(self, tree):
         obj = self.visit(tree.children[0])
         name = str(tree.children[1])
+        # Guard against attribute tunneling into host objects (e.g., ModuleFunction, Interpreter internals).
+        forbidden_types = (ModuleFunction, ScopeManager, LogosInterpreter)
+        if isinstance(obj, forbidden_types) or name.startswith("_"):
+            raise LogosError("Anathema: Attribute access forbidden on this spirit.")
+
         return obj.get(name) if isinstance(obj, dict) else getattr(obj, name)
 
     def get_item(self, tree):
@@ -1094,11 +1104,11 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
 
             tree = parser.parse(text)
             result = interpreter.visit(tree)
+            if isinstance(result, ReturnValue):
+                result = result.value
             if result is not None:
                 print(f"=> {result}")
 
-        except ReturnSignal as r:
-            print(f"=> {r.value}")
         except (LogosError, Exception) as e:
             print(f"Anathema: {e}")
 
