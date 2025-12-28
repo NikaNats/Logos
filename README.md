@@ -261,7 +261,7 @@ nikanats-logos/
 ### The Pilgrim's Journey: Workflow Overview
 
 ```mermaid
-graph LR
+graph TD
     %% ==========================================
     %% DESIGN & PALETTE (Material Pastel)
     %% ==========================================
@@ -269,62 +269,57 @@ graph LR
     classDef inputZone fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,rx:10,ry:10,color:#0d47a1;
     classDef logicZone fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:10,ry:10,color:#4a148c;
     classDef resultZone fill:#e8f5e9,stroke:#43a047,stroke-width:2px,rx:10,ry:10,color:#1b5e20;
-    classDef invisible fill:none,stroke:none;
 
     %% ==========================================
-    %% 1. THE USER
+    %% 1. THE USER (Top Level)
     %% ==========================================
     User("👤 <b>The Pilgrim</b><br/>(User)"):::userNode
 
     %% ==========================================
-    %% STAGE 1: CREATION (The Scriptorium)
+    %% STAGE 1: CREATION (Layer 1)
     %% ==========================================
     subgraph Stage1 ["🟦 Phase 1: Creation"]
-        direction TB
+        direction LR
         Editor("📝 <b>VS Code Editor</b><br/>(Writes .lg files)"):::inputZone
         LSP("💡 <b>The Iconostasis</b><br/>(Auto-detects errors)"):::inputZone
     end
 
     %% ==========================================
-    %% STAGE 2: EXECUTION (The Liturgy)
+    %% STAGE 2: EXECUTION (Layer 2)
     %% ==========================================
     subgraph Stage2 ["🟪 Phase 2: Execution"]
-        direction TB
+        direction LR
         Runtime("⚙️ <b>Logos Runtime</b><br/>(Interpreter)"):::logicZone
         Canon("📚 <b>The Canon</b><br/>(Standard Lib)"):::logicZone
     end
 
     %% ==========================================
-    %% STAGE 3: REVELATION (The Output)
+    %% STAGE 3: REVELATION (Layer 3)
     %% ==========================================
     subgraph Stage3 ["🟩 Phase 3: Results"]
-        direction TB
+        direction LR
         Console("🖥️ <b>Terminal</b><br/>(Text Output)"):::resultZone
         FileSys("💾 <b>File System</b><br/>(Data/Logs)"):::resultZone
     end
 
     %% ==========================================
-    %% THE FLOW (Storyline)
+    %% THE FLOW
     %% ==========================================
 
-    %% Main Action Flow (Thick Lines)
+    %% Main Downward Flow
     User ==>|1. Writes Code| Editor
     Editor ==>|3. Runs Code| Runtime
     Runtime ==>|4. Proclaims| Console
 
-    %% Background Logic (Dashed Lines)
+    %% Internal/Horizontal Logic
     Editor -.->|2. Real-time checking| LSP
     LSP -.->|Red squiggly lines| Editor
     
-    %% Internal Dependencies
     Runtime -.->|Uses Math/Time| Canon
     Runtime -.->|Writes| FileSys
 
-    %% Feedback Loop
+    %% Long Feedback Loop (Bottom to Top)
     Console -.->|5. Reads & Verification| User
-
-    %% Spacing Hack to improve layout
-    LSP ~~~ Runtime
 ```
 
 ---
