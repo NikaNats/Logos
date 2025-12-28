@@ -14,6 +14,16 @@ class SecurityTests(unittest.TestCase):
             self.assertIsNotNone(result.error)
             self.assertIn("forbidden", str(result.error).lower())
 
+    def test_path_traversal_blocked(self) -> None:
+        result = _execute_fixture("security/path_traversal_blocked.lg")
+        self.assertIsNone(result.error)
+        self.assertIn("0", result.stdout)
+
+    def test_private_attribute_blocked(self) -> None:
+        result = _execute_fixture("security/private_attr_block.lg")
+        self.assertIsNone(result.error)
+        self.assertIn("Denied", result.stdout)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main(verbosity=2)

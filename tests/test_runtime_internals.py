@@ -129,6 +129,13 @@ class RuntimeInternalsTests(unittest.TestCase):
         out = ffi.marshal_args([True], dummy)
         self.assertEqual(out, [True])
 
+    def test_amend_undeclared_raises(self) -> None:
+        interp = logos.LogosInterpreter()
+        parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr")
+        with self.assertRaises(logos.LogosError):
+            tree = parser.parse("amend x = 1;")
+            interp.visit(tree)
+
     def test_stdlib_io_and_list_ops(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             std = logos.StdLib(td)

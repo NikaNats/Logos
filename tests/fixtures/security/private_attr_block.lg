@@ -1,0 +1,5 @@
+vigil {
+    proclaim [1].__class__;
+} confess sin {
+    proclaim "Denied";
+} amen
