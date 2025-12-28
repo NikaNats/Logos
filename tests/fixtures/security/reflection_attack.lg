@@ -1,0 +1,9 @@
+tradition "../../../lib/numeri.lg" as math;
+
+vigil {
+    inscribe hidden_interp = math.abs.interpreter;
+    inscribe secret_globals = hidden_interp.scope.globals;
+    proclaim "HERESY: Sandbox breached! Access to Python internals gained.";
+} confess sin {
+    proclaim "The Iconostasis holds. Access denied.";
+} amen
