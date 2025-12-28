@@ -256,6 +256,269 @@ nikanats-logos/
 
 ---
 
+## 🏗️ Architecture: The Divine Order
+
+```mermaid
+graph TD
+    %% ==========================================
+    %% CLASSES & STYLES
+    %% ==========================================
+    classDef python fill:#3776ab,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef logos fill:#6a0dad,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef ts fill:#3178c6,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef config fill:#808080,stroke:#fff,stroke-width:1px,color:#fff,stroke-dasharray: 5 5;
+    classDef ext fill:#2d2d2d,stroke:#fff,stroke-width:2px,color:#fff;
+
+    %% ==========================================
+    %% 1. CORE INTERPRETER (Root)
+    %% ==========================================
+    subgraph Root["📁 nikanats-logos/"]
+        direction TB
+        
+        LogosPy["🐍 logos.py<br/>(Interpreter Entry Point)"]:::python
+        
+        subgraph InterpreterLogic["⚙️ Runtime Internals"]
+            direction TB
+            LogosInterpreter[("LogosInterpreter<br/>(Lark Visitor)")]:::python
+            GrammarStr["LOGOS_GRAMMAR<br/>(EBNF String)"]:::config
+            
+            ScopeMgr["ScopeManager<br/>(Stack & Variables)"]:::python
+            FFIMgr["FFIManager<br/>(ctypes / Shared Libs)"]:::python
+            StdLibPy["StdLib<br/>(System Intrinsics)"]:::python
+            
+            Exceptions["Exceptions<br/>(LogosError, ReturnSignal)"]:::python
+        end
+
+        LogosPy -->|Instantiates| LogosInterpreter
+        LogosInterpreter -->|Parses using| GrammarStr
+        LogosInterpreter -->|Manages State| ScopeMgr
+        LogosInterpreter -->|Binds C Funcs| FFIMgr
+        LogosInterpreter -->|Registers Intrinsics| StdLibPy
+        LogosInterpreter -->|Raises| Exceptions
+    end
+
+    %% ==========================================
+    %% 2. STANDARD LIBRARY (The Canon)
+    %% ==========================================
+    subgraph Lib["📁 lib/ (The Canon)"]
+        direction TB
+        Genesis["📜 genesis.lg<br/>(IO, Time, Sys)"]:::logos
+        Numeri["📜 numeri.lg<br/>(Math)"]:::logos
+        Psalms["📜 psalms.lg<br/>(String Ops)"]:::logos
+        Canon["📜 canon.lg<br/>(Core Utils)"]:::logos
+    end
+
+    %% Dependency: The Python StdLib provides intrinsics used by the Logos Libs
+    StdLibPy -.->|Provides __sys_*| Genesis
+    StdLibPy -.->|Provides primitives| Psalms
+
+    %% ==========================================
+    %% 3. VS CODE EXTENSION (The Iconostasis)
+    %% ==========================================
+    subgraph VSCode["📁 packages/logos-vscode/"]
+        direction TB
+        
+        subgraph Client["🖥️ Client (TypeScript)"]
+            ExtTS["🟦 extension.ts<br/>(VS Code Client)"]:::ts
+            PackageJSON["📦 package.json"]:::config
+        end
+
+        subgraph Server["🔌 Server (Python LSP)"]
+            LSPPy["🐍 lsp_server.py<br/>(PyGLS Server)"]:::python
+            LarkFile["📄 logos.lark<br/>(Grammar File)"]:::config
+            BuildWin["🛠️ build_server_win.ps1<br/>(PyInstaller)"]:::ext
+        end
+
+        Syntaxes["🎨 syntaxes/logos.tmLanguage.json"]:::config
+
+        ExtTS -->|Spawns| LSPPy
+        LSPPy -->|Loads| LarkFile
+        LSPPy -.->|Sends Diagnostics| ExtTS
+    end
+
+    %% ==========================================
+    %% 4. TESTING (The Inquisitor)
+    %% ==========================================
+    subgraph Tests["📁 tests/"]
+        direction TB
+        Runner["🐍 canon_runner.py"]:::python
+        Fixtures["📂 fixtures/*.lg"]:::logos
+        UnitTests["🐍 test_*.py"]:::python
+    end
+
+    UnitTests -->|Imports| LogosPy
+    Runner -->|Executes| Fixtures
+    Runner -->|Uses| LogosInterpreter
+
+    %% ==========================================
+    %% 5. USER CODE (Examples)
+    %% ==========================================
+    subgraph Examples["📁 examples/ & programs/"]
+        UserCode["📜 liturgies<br/>(*.lg files)"]:::logos
+    end
+
+    %% Flow: User Code is run by Interpreter, imports Libs
+    UserCode -->|Run by| LogosPy
+    UserCode -.->|tradition '...'| Lib
+
+    %% ==========================================
+    %% EXTERNAL LIBS
+    %% ==========================================
+    LarkLib[("📦 Lark Library")]:::ext
+    PyGLS[("📦 pygls")]:::ext
+
+    LogosInterpreter -->|Depends on| LarkLib
+    LSPPy -->|Depends on| PyGLS
+    LSPPy -->|Depends on| LarkLib
+```
+
+### The Liturgical Workflow: Editing and Execution
+
+```mermaid
+sequenceDiagram
+    autonumber
+    
+    actor User as 👤 Monk (User)
+    
+    box "The Iconostasis (Editor)" #eef6fc
+        participant VSC as 🟦 VS Code Client
+        participant LSP as 🔌 Language Server
+    end
+    
+    box "The Logos (Runtime)" #f9f2f4
+        participant INT as 🐍 Interpreter (logos.py)
+        participant LIB as 📜 Standard Canon (lib/*)
+        participant SYS as ⚙️ System / FFI
+    end
+
+    %% PHASE 1: EDITING
+    note over User, LSP: Phase 1: Inscribing the Liturgy (Writing Code)
+
+    User->>VSC: Opens/Types in .lg file
+    activate VSC
+    VSC->>VSC: Applies Syntax Highlighting<br/>(TextMate Grammar)
+    
+    VSC->>LSP: Sends document content
+    activate LSP
+    LSP->>LSP: Loads 'logos.lark' Grammar
+    LSP->>LSP: Parses & Validates Types
+    
+    alt Heresy Detected (Error)
+        LSP-->>VSC: Publish Diagnostics (Errors)
+        VSC-->>User: squiggly red line "Heresy: Type Mismatch"
+    else Canonical (Valid)
+        LSP-->>VSC: Clear Diagnostics
+    end
+    deactivate LSP
+    deactivate VSC
+
+    %% PHASE 2: EXECUTION
+    note over User, SYS: Phase 2: Performing the Mystery (Execution)
+
+    User->>INT: Run `python logos.py main.lg`
+    activate INT
+    
+    INT->>INT: Parses Source Code<br/>(Internal String Grammar)
+    
+    INT->>LIB: Import Traditions (Standard Lib)
+    activate LIB
+    LIB-->>INT: Load Genesis, Numeri, Psalms
+    deactivate LIB
+
+    loop Execution Cycle
+        INT->>INT: Visit AST Nodes
+        
+        opt "Apocrypha" (Foreign Function)
+            INT->>SYS: Load DLL/Shared Object (ctypes)
+            activate SYS
+            SYS-->>INT: Return C Function Handle
+            deactivate SYS
+        end
+        
+        opt "Proclaim" (Output)
+            INT-->>User: Print to Console "☩ Verily"
+        end
+        
+        opt "Vigil" (Error Handling)
+            INT->>INT: Catch Exceptions & Confess
+        end
+    end
+    
+    INT-->>User: Exit Code 0
+    deactivate INT
+```
+
+### The Pilgrim's Journey: Workflow Overview
+
+```mermaid
+graph LR
+    %% ==========================================
+    %% DESIGN & PALETTE (Material Pastel)
+    %% ==========================================
+    classDef userNode fill:#ffccbc,stroke:#d84315,stroke-width:3px,rx:15,ry:15,color:#333;
+    classDef inputZone fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,rx:10,ry:10,color:#0d47a1;
+    classDef logicZone fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:10,ry:10,color:#4a148c;
+    classDef resultZone fill:#e8f5e9,stroke:#43a047,stroke-width:2px,rx:10,ry:10,color:#1b5e20;
+    classDef invisible fill:none,stroke:none;
+
+    %% ==========================================
+    %% 1. THE USER
+    %% ==========================================
+    User("👤 <b>The Pilgrim</b><br/>(User)"):::userNode
+
+    %% ==========================================
+    %% STAGE 1: CREATION (The Scriptorium)
+    %% ==========================================
+    subgraph Stage1 ["🟦 Phase 1: Creation"]
+        direction TB
+        Editor("📝 <b>VS Code Editor</b><br/>(Writes .lg files)"):::inputZone
+        LSP("💡 <b>The Iconostasis</b><br/>(Auto-detects errors)"):::inputZone
+    end
+
+    %% ==========================================
+    %% STAGE 2: EXECUTION (The Liturgy)
+    %% ==========================================
+    subgraph Stage2 ["🟪 Phase 2: Execution"]
+        direction TB
+        Runtime("⚙️ <b>Logos Runtime</b><br/>(Interpreter)"):::logicZone
+        Canon("📚 <b>The Canon</b><br/>(Standard Lib)"):::logicZone
+    end
+
+    %% ==========================================
+    %% STAGE 3: REVELATION (The Output)
+    %% ==========================================
+    subgraph Stage3 ["🟩 Phase 3: Results"]
+        direction TB
+        Console("🖥️ <b>Terminal</b><br/>(Text Output)"):::resultZone
+        FileSys("💾 <b>File System</b><br/>(Data/Logs)"):::resultZone
+    end
+
+    %% ==========================================
+    %% THE FLOW (Storyline)
+    %% ==========================================
+
+    %% Main Action Flow (Thick Lines)
+    User ==>|1. Writes Code| Editor
+    Editor ==>|3. Runs Code| Runtime
+    Runtime ==>|4. Proclaims| Console
+
+    %% Background Logic (Dashed Lines)
+    Editor -.->|2. Real-time checking| LSP
+    LSP -.->|Red squiggly lines| Editor
+    
+    %% Internal Dependencies
+    Runtime -.->|Uses Math/Time| Canon
+    Runtime -.->|Writes| FileSys
+
+    %% Feedback Loop
+    Console -.->|5. Reads & Verification| User
+
+    %% Spacing Hack to improve layout
+    LSP ~~~ Runtime
+```
+
+---
+
 ## ⚖️ License
 
 This project is licensed under the **MIT License**.
