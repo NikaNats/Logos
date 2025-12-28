@@ -23,6 +23,22 @@ class RuntimeInternalsTests(unittest.TestCase):
             interp.visit(tree)
         return interp, buf.getvalue()
 
+    def _make_security(self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True) -> logos.SecurityContext:
+        libs = libs or [
+            "mylib",
+            "winlib",
+            "m",
+            "libm",
+            "c",
+            "libc",
+            "definitely_not_a_real_library_12345",
+        ]
+        whitelist = {name: set() for name in libs}
+        return logos.SecurityContext(allow_ffi=True, whitelist=whitelist, allow_unsafe_pointers=allow_unsafe_pointers)
+
+    def _make_ffi(self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True) -> logos.FFIManager:
+        return logos.FFIManager(self._make_security(libs, allow_unsafe_pointers))
+
     def test_scope_manager_get_set_declare(self) -> None:
         s = logos.ScopeManager()
         s.set("g", 1)
@@ -52,7 +68,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         s.pop_frame()
 
     def test_ffi_manager_type_mapping_and_infer(self) -> None:
-        ffi = logos.FFIManager()
+        ffi = self._make_ffi()
         self.assertIs(ffi.get_ctype("HolyInt"), ctypes.c_longlong)
         self.assertIs(ffi.get_ctype("Text"), ctypes.c_char_p)
         self.assertIs(ffi.get_ctype("Unknown"), ctypes.c_double)
@@ -63,7 +79,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertIs(ffi.infer_ctype_from_value(object()), ctypes.c_double)
 
     def test_ffi_load_library_filename_selection_branches(self) -> None:
-        ffi = logos.FFIManager()
+        ffi = self._make_ffi()
 
         # Explicit extension
         ffi.libs["mylib.dll"] = object()  # prevent CDLL load
@@ -94,12 +110,12 @@ class RuntimeInternalsTests(unittest.TestCase):
             logos.sys.platform = original_platform
 
     def test_ffi_load_library_error_path(self) -> None:
-        ffi = logos.FFIManager()
+        ffi = self._make_ffi()
         with self.assertRaises(logos.LogosError):
             ffi.load_library("definitely_not_a_real_library_12345")
 
     def test_ffi_marshal_args_bytes_and_numbers(self) -> None:
-        ffi = logos.FFIManager()
+        ffi = self._make_ffi()
         # Create a dummy ForeignFunction definition for marshalling only.
         dummy = logos.ForeignFunction(func=None, restype=ctypes.c_double, argtypes=[ctypes.c_char_p, ctypes.c_double, ctypes.c_longlong])
         out = ffi.marshal_args([b"hi", 1.5, 7], dummy)
@@ -108,7 +124,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertEqual(out[2], 7)
 
     def test_ffi_marshal_args_else_branch(self) -> None:
-        ffi = logos.FFIManager()
+        ffi = self._make_ffi()
         dummy = logos.ForeignFunction(func=None, restype=ctypes.c_double, argtypes=[ctypes.c_bool])
         out = ffi.marshal_args([True], dummy)
         self.assertEqual(out, [True])

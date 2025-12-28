@@ -79,7 +79,25 @@ def _load_grammar() -> str:
     return grammar
 
 
-PARSER = Lark(_load_grammar(), parser="lalr", propagate_positions=True)
+_PARSER = None
+
+
+def get_parser() -> "Lark":
+    """Lazily construct and cache the Logos grammar parser."""
+    global _PARSER
+    if _PARSER is None:
+        _PARSER = Lark(_load_grammar(), parser="lalr", propagate_positions=True)
+    return _PARSER
+
+
+class _ParserProxy:
+    """Lightweight proxy to preserve PARSER.parse() usage without eager construction."""
+
+    def parse(self, *args, **kwargs):
+        return get_parser().parse(*args, **kwargs)
+
+
+PARSER = _ParserProxy()
 
 
 def _make_diag(line0: int, col0: int, msg: str) -> Diagnostic:
@@ -462,7 +480,7 @@ def validate(ls: LanguageServer, uri: str) -> None:
     diagnostics: list[Diagnostic] = []
 
     try:
-        tree = PARSER.parse(source)
+        tree = get_parser().parse(source)
         diagnostics.extend(_typecheck(tree))
     except Exception as e:
         # Best-effort location mapping.

@@ -1,3 +1,4 @@
+import argparse
 import ctypes
 import os
 import sys
@@ -109,10 +110,50 @@ class LogosError(Exception):
     """Base exception for the runtime."""
     pass
 
+
+class SecurityError(LogosError):
+    """Raised when a program attempts a forbidden action."""
+    pass
+
 class ReturnSignal(Exception):
     """Control flow signal for returning values from functions."""
     def __init__(self, value: Any):
         self.value = value
+
+
+@dataclass
+class SecurityContext:
+    """
+    Governs access to the FFI (Apocrypha) and sensitive operations.
+
+    - allow_ffi: master switch for any foreign calls.
+    - whitelist: mapping of library name -> allowed function names.
+    - allow_unsafe_pointers: when False, pointer-like types are rejected.
+    """
+    allow_ffi: bool = False
+    whitelist: Dict[str, Set[str]] = field(default_factory=dict)
+    allow_unsafe_pointers: bool = False
+
+    @classmethod
+    def strict(cls) -> "SecurityContext":
+        """Default strict mode: no FFI permitted."""
+        return cls(allow_ffi=False)
+
+    @classmethod
+    def permissive(cls) -> "SecurityContext":
+        """Developer-friendly preset with basic math bindings allowed."""
+        math_funcs = {"cos", "sin", "tan", "sqrt", "pow", "abs", "floor", "ceil"}
+        return cls(
+            allow_ffi=True,
+            whitelist={
+                "m": math_funcs,
+                "libm": math_funcs,
+                "libc": math_funcs,
+                "c": math_funcs,
+                "msvcrt": math_funcs | {"puts"},
+            },
+            allow_unsafe_pointers=False,
+        )
 
 
 @dataclass(frozen=True)
@@ -191,6 +232,17 @@ class ScopeManager:
         else:
             self.globals[name] = value
 
+    def mutate(self, name: str, value: Any) -> None:
+        """Update an existing binding; raise if it does not exist in any scope."""
+        for frame in reversed(self.stack):
+            if name in frame:
+                frame[name] = value
+                return
+        if name in self.globals:
+            self.globals[name] = value
+            return
+        raise LogosError(f"Heresy: Unknown spirit '{name}' for amendment")
+
     def declare(self, name: str, value: Any) -> None:
         """Declare a new binding in the current scope.
 
@@ -208,13 +260,26 @@ class ScopeManager:
 
 
 class FFIManager:
-    """
-    Handles loading shared libraries and marshalling types (Apocrypha).
-    """
-    def __init__(self):
+    """Handles loading shared libraries and marshalling types (Apocrypha)."""
+
+    def __init__(self, security: SecurityContext):
+        self.security = security
         self.libs: Dict[str, ctypes.CDLL] = {}
 
+    def _clean_lib_name(self, lib_name: str) -> str:
+        """Normalize a library name for whitelist comparison."""
+        base = lib_name.split(".")[0]
+        if base.startswith("lib"):
+            return base[3:]
+        return base
+
     def get_ctype(self, type_name: str) -> Any:
+        unsafe_types = {"Text", "String", "void_p", "char_p"}
+        if not self.security.allow_unsafe_pointers and type_name in unsafe_types:
+            raise SecurityError(
+                f"Security Violation: Type '{type_name}' involves raw pointers and is forbidden in safe mode."
+            )
+
         mapping = {
             "HolyFloat": ctypes.c_double, "Float": ctypes.c_double, "Double": ctypes.c_double,
             "HolyInt": ctypes.c_longlong, "Int": ctypes.c_longlong,
@@ -224,6 +289,13 @@ class FFIManager:
         return mapping.get(type_name, ctypes.c_double)
 
     def load_library(self, lib_name: str) -> str:
+        if not self.security.allow_ffi:
+            raise SecurityError("Apocrypha (FFI) is disabled by system dogma.")
+
+        clean = self._clean_lib_name(lib_name)
+        if lib_name not in self.security.whitelist and clean not in self.security.whitelist:
+            raise SecurityError(f"Security Violation: Library '{lib_name}' is not permitted.")
+
         if lib_name.lower().endswith((".dll", ".so", ".dylib")):
             filename = lib_name
         elif os.name == "nt":
@@ -242,8 +314,17 @@ class FFIManager:
         return filename
 
     def bind_function(self, lib_name: str, func_name: str, arg_types: List[str], ret_type: str) -> ForeignFunction:
-        lib = self.libs[self.load_library(lib_name)]
-        func = getattr(lib, func_name)
+        clean = self._clean_lib_name(lib_name)
+        allowed_funcs = self.security.whitelist.get(lib_name) or self.security.whitelist.get(clean) or set()
+        if func_name not in allowed_funcs:
+            raise SecurityError(f"Security Violation: Function '{func_name}' in '{lib_name}' is forbidden.")
+
+        filename = self.load_library(lib_name)
+        lib = self.libs[filename]
+        try:
+            func = getattr(lib, func_name)
+        except AttributeError:
+            raise LogosError(f"Schism: Symbol '{func_name}' not found in '{filename}'.")
         
         c_restype = self.get_ctype(ret_type)
         c_argtypes = [self.get_ctype(t) for t in arg_types]
@@ -318,7 +399,10 @@ class StdLib:
 
     def _open(self, path: str, mode: Union[int, str]) -> int:
         try:
-            abs_path = os.path.abspath(os.path.join(self.base_path, str(path)))
+            base = os.path.abspath(self.base_path)
+            abs_path = os.path.abspath(os.path.join(base, str(path)))
+            if os.path.commonpath([base, abs_path]) != base:
+                raise LogosError("Path traversal blocked")
             mode_str = {0: "r", 1: "w", 2: "a"}.get(int(mode), "r")
             fd = self._next_fd
             self._fds[fd] = open(abs_path, mode_str, encoding="utf-8")
@@ -414,7 +498,8 @@ class ModuleManager:
             with open(abs_path, "r", encoding="utf-8") as f:
                 source = f.read()
 
-            child_interp = LogosInterpreter(base_path=os.path.dirname(abs_path), module_manager=self)
+            security = getattr(self, "security", SecurityContext.strict())
+            child_interp = LogosInterpreter(base_path=os.path.dirname(abs_path), module_manager=self, security=security)
             child_interp._current_file = abs_path
 
             tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(source)
@@ -518,14 +603,16 @@ class TypeCanon:
 # ==========================================
 
 class LogosInterpreter(Interpreter):
-    def __init__(self, base_path: Optional[str] = None, module_manager: Optional[ModuleManager] = None):
+    def __init__(self, base_path: Optional[str] = None, module_manager: Optional[ModuleManager] = None, security: Optional[SecurityContext] = None):
         self.base_path = os.path.abspath(base_path or os.getcwd())
         
         # Helpers
+        self.security = security if security is not None else SecurityContext.strict()
         self.scope = ScopeManager()
-        self.ffi = FFIManager()
+        self.ffi = FFIManager(self.security)
         self.stdlib = StdLib(self.base_path)
         self.module_manager = module_manager if module_manager else ModuleManager()
+        self.module_manager.security = self.security
         
         # State
         self.stdlib.register_into(self.scope)
@@ -741,11 +828,16 @@ class LogosInterpreter(Interpreter):
     def _invoke_user_function(self, func: UserFunction, args: List[Any]):
         current_func = func
         current_args = args
+        tail_hops = 0
+        tail_limit = max(int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100)
         while True:
             if len(current_args) != len(current_func.params):
                 raise LogosError(
                     f"Invocation Error: {current_func.name} expects {len(current_func.params)} args."
                 )
+
+            if tail_hops > tail_limit:
+                raise LogosError("Pride: Tail-call loop exceeded recursion policy.")
 
             self.scope.push_frame(dict(zip(current_func.params, current_args)))
             self._type_stack.append({})
@@ -755,6 +847,7 @@ class LogosInterpreter(Interpreter):
                 if isinstance(s.value, TailCall):
                     current_func = s.value.func
                     current_args = s.value.args
+                    tail_hops += 1
                     continue
                 return s.value
             finally:
@@ -821,7 +914,7 @@ class LogosInterpreter(Interpreter):
         if rule == "mut_var":
             name = str(node.children[0])
             self._enforce_declared_type(name, value)
-            self.scope.set(name, value)
+            self.scope.mutate(name, value)
         elif rule == "mut_attr":
             container = self._evaluate_mutable_target(node.children[0])
             name = str(node.children[1])
@@ -886,7 +979,14 @@ class LogosInterpreter(Interpreter):
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
         actual_type = TypeCanon.get_type_of_value(value)
 
+        known_decl = TypeCanon.NUMERIC | TypeCanon.TEXT | TypeCanon.BOOL | TypeCanon.LIST | TypeCanon.VOID
         if actual_type == "Mystery":
+            # If the declared type is one of the known canon types, treat unknown values as mismatches.
+            if type_name in known_decl:
+                raise LogosError(
+                    f"Canon Error: Type mismatch for '{context}': expected {type_name}, got unknown type ({value})."
+                )
+            # Otherwise, remain permissive for custom/opaque types.
             return
 
         if not TypeCanon.are_compatible(type_name, actual_type):
@@ -1003,13 +1103,33 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
             print(f"Anathema: {e}")
 
 def main():
-    interpreter = LogosInterpreter()
+    parser = argparse.ArgumentParser(description="Logos Liturgical Interpreter")
+    parser.add_argument("script", nargs="?", help="Path to the liturgy file")
+    parser.add_argument("--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings (dangerous)")
+    parser.add_argument("--allow-lib", action="append", default=[], help="Whitelist an additional library for FFI")
+    parser.add_argument("--allow-unsafe-pointers", action="store_true", help="Allow pointer-like FFI types such as Text/String")
+    args = parser.parse_args()
 
-    if len(sys.argv) < 2:
+    security = SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
+
+    if args.allow_lib:
+        security.allow_ffi = True
+        for lib in args.allow_lib:
+            if lib not in security.whitelist:
+                security.whitelist[lib] = set()
+        if any(len(security.whitelist.get(lib, set())) == 0 for lib in args.allow_lib):
+            print("☩ Warning: Library allowed via CLI but no functions whitelisted; calls will still be blocked.")
+
+    if args.allow_unsafe_pointers:
+        security.allow_unsafe_pointers = True
+
+    interpreter = LogosInterpreter(security=security)
+
+    if not args.script:
         run_repl(interpreter)
         return
 
-    entry_path = os.path.abspath(sys.argv[1])
+    entry_path = os.path.abspath(args.script)
     interpreter.base_path = os.path.dirname(entry_path)
     interpreter.stdlib.base_path = interpreter.base_path # Sync paths
     interpreter._current_file = entry_path
@@ -1021,11 +1141,10 @@ def main():
         parser = Lark(LOGOS_GRAMMAR, parser="lalr")
         interpreter.visit(parser.parse(source))
 
-        # Invoke main if defined
         try:
             main_func = interpreter.scope.get("main")
         except LogosError:
-            main_func = None  # No main, that's fine
+            main_func = None
 
         if isinstance(main_func, UserFunction):
             interpreter._invoke_user_function(main_func, [])

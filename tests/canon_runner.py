@@ -28,6 +28,7 @@ def _execute_fixture(
     fixture_name: str,
     *,
     env: dict[str, str] | None = None,
+    security: logos.SecurityContext | None = None,
 ) -> _ExecResult:
     fixture_path = FIXTURES / fixture_name
     if not fixture_path.exists():
@@ -37,7 +38,7 @@ def _execute_fixture(
         for k, v in env.items():
             os.environ[str(k)] = str(v)
 
-    interpreter = logos.LogosInterpreter(base_path=str(FIXTURES))
+    interpreter = logos.LogosInterpreter(base_path=str(FIXTURES), security=security or logos.SecurityContext.strict())
     interpreter._current_file = str(fixture_path)
     parser = Lark(logos.LOGOS_GRAMMAR, parser="lalr")
 
@@ -59,6 +60,12 @@ def _execute_fixture(
             err = e
 
     return _ExecResult(stdout=buf.getvalue(), error=err)
+
+
+def _permissive_security(allow_pointers: bool = False) -> logos.SecurityContext:
+    sec = logos.SecurityContext.permissive()
+    sec.allow_unsafe_pointers = allow_pointers
+    return sec
 
 
 def _assert_value_line(test: unittest.TestCase, stdout: str, value: str) -> None:
@@ -149,19 +156,19 @@ class CanonTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_puts_no_crash(self) -> None:
-        r = _execute_fixture("ffi_puts_windows.lg")
+        r = _execute_fixture("ffi_puts_windows.lg", security=_permissive_security(allow_pointers=True))
         self.assertIsNone(r.error)
         # NOTE: msvcrt.puts writes via the C runtime and may bypass Python stdout capture.
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_arity_mismatch_rejected(self) -> None:
-        r = _execute_fixture("foreign_arity_mismatch.lg")
+        r = _execute_fixture("foreign_arity_mismatch.lg", security=_permissive_security(allow_pointers=True))
         self.assertIsNotNone(r.error)
         self.assertIn("Invocation Error", str(r.error))
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_infer_argtypes(self) -> None:
-        r = _execute_fixture("ffi_infer_argtypes_windows.lg")
+        r = _execute_fixture("ffi_infer_argtypes_windows.lg", security=_permissive_security(allow_pointers=True))
         self.assertIsNone(r.error)
         # NOTE: msvcrt.puts writes via the C runtime and may bypass Python stdout capture.
 
