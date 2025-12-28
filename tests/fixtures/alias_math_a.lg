@@ -1,0 +1,5 @@
+inscribe value = 1;
+
+mystery calculate(x) {
+    offer x + 1;
+} amen

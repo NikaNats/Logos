@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -46,6 +47,18 @@ except Exception as e:
 
 
 SERVER = LanguageServer("logos-server", "v0.1")
+
+# Locate the shared runtime canon (logos.py) from the repo root.
+SERVER_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SERVER_DIR.parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+try:
+    from logos import TypeCanon
+except Exception as e:  # pragma: no cover - tooling bootstrap
+    _fatal("LOGOS Iconostasis: Could not locate the Canon (logos.py).")
+    raise
 
 
 def _load_grammar() -> str:
@@ -94,27 +107,6 @@ def _infer_literal_type(expr: object) -> str | None:
         if rule == "procession":
             return "Procession"
     return None
-
-
-def _type_compatible(expected: str, actual: str) -> bool:
-    if expected in ("HolyFloat", "Float", "Double") and actual in ("HolyInt", "HolyFloat"):
-        return True
-    return expected == actual
-
-
-def _is_numeric(t: str) -> bool:
-    return t in ("HolyInt", "Int", "HolyFloat", "Float", "Double")
-
-
-def _is_text(t: str) -> bool:
-    return t in ("Text", "String")
-
-
-def _promote_numeric(a: str, b: str) -> str:
-    # Match runtime behavior: mixed int/float generally yields float-ish.
-    if a in ("HolyFloat", "Float", "Double") or b in ("HolyFloat", "Float", "Double"):
-        return "HolyFloat"
-    return "HolyInt"
 
 
 def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagnostic:
@@ -239,60 +231,40 @@ def _infer_expr_type(
             return str(expr.children[1])
         return None
 
-    if rule in ("add", "sub", "mul", "div"):
+    if rule in ("add", "sub", "mul", "div", "eq", "ne", "lt", "gt", "le", "ge"):
         left_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
         right_t = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
         if left_t is None or right_t is None:
             return None
 
-        if rule == "add":
-            if _is_numeric(left_t) and _is_numeric(right_t):
-                return _promote_numeric(left_t, right_t)
-            if _is_text(left_t) and _is_text(right_t):
-                return "Text"
+        result_type = TypeCanon.resolve_binary_op(rule, left_t, right_t)
+        if result_type is None:
+            op_word = {
+                "add": "add",
+                "sub": "subtract",
+                "mul": "multiply",
+                "div": "divide",
+                "lt": "compare",
+                "gt": "compare",
+                "le": "compare",
+                "ge": "compare",
+                "eq": "compare",
+                "ne": "compare",
+            }.get(rule, "apply")
             diags.append(
                 _diag_from_node(
                     expr,
-                    f"Type mismatch: cannot add {left_t} and {right_t}.",
+                    f"Type mismatch: cannot {op_word} {left_t} and {right_t}.",
                     DiagnosticSeverity.Error,
                 )
             )
             return None
 
-        # -, *, /
-        if not (_is_numeric(left_t) and _is_numeric(right_t)):
-            op = {"sub": "subtract", "mul": "multiply", "div": "divide"}.get(rule, "operate")
-            diags.append(
-                _diag_from_node(
-                    expr,
-                    f"Type mismatch: cannot {op} {left_t} and {right_t}.",
-                    DiagnosticSeverity.Error,
-                )
-            )
-            return None
-
-        if rule == "div":
-            return "HolyFloat"
-        return _promote_numeric(left_t, right_t)
-
-    if rule in ("eq", "ne", "lt", "gt", "le", "ge"):
-        # Comparisons yield Bool; only validate obvious numeric ordering ops.
-        left_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
-        right_t = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
-        if rule in ("lt", "gt", "le", "ge") and left_t and right_t:
-            if not (_is_numeric(left_t) and _is_numeric(right_t)):
-                diags.append(
-                    _diag_from_node(
-                        expr,
-                        f"Type mismatch: comparison '{rule}' expects numeric operands, got {left_t} and {right_t}.",
-                        DiagnosticSeverity.Error,
-                    )
-                )
-        return "Bool"
+        return result_type
 
     if rule == "neg":
         inner_t = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
-        if inner_t and not _is_numeric(inner_t):
+        if inner_t and inner_t not in TypeCanon.NUMERIC:
             diags.append(
                 _diag_from_node(
                     expr,
@@ -323,7 +295,7 @@ def _infer_expr_type(
             if not expected:
                 continue
             actual = _infer_expr_type(arg_expr, lookup_var_type, func_sigs, diags)
-            if actual and not _type_compatible(expected, actual):
+            if actual and not TypeCanon.are_compatible(expected, actual):
                 diags.append(
                     _diag_from_node(
                         expr,
@@ -420,7 +392,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                 module_types[var_name] = declared
 
             actual = _infer_expr_type(expr, lookup_var_type, func_sigs, diags)
-            if actual and not _type_compatible(declared, actual):
+            if actual and not TypeCanon.are_compatible(declared, actual):
                 diags.append(
                     _diag_from_node(
                         node,
@@ -437,7 +409,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             if actual and isinstance(target, Tree) and target.data == "mut_var":
                 var_name = str(target.children[0])
                 declared = lookup_var_type(var_name)
-                if declared and not _type_compatible(declared, actual):
+                if declared and not TypeCanon.are_compatible(declared, actual):
                     diags.append(
                         _diag_from_node(
                             node,
@@ -460,7 +432,7 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
                         expr = assign.children[1]
                         expected = schema.get(field)
                         actual = _infer_expr_type(expr, lookup_var_type, func_sigs, diags)
-                        if expected and actual and not _type_compatible(expected, actual):
+                        if expected and actual and not TypeCanon.are_compatible(expected, actual):
                             diags.append(
                                 _diag_from_node(
                                     assign,

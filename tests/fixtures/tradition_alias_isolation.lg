@@ -1,0 +1,14 @@
+tradition "alias_math_a.lg" as MathA;
+tradition "alias_math_b.lg" as MathB;
+
+mystery main() {
+    inscribe value = 100;
+    inscribe calc_a = MathA.calculate;
+    inscribe calc_b = MathB.calculate;
+
+    proclaim MathA.value;
+    proclaim MathB.value;
+    proclaim value;
+    proclaim calc_a(10);
+    proclaim calc_b(10);
+} amen

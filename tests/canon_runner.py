@@ -38,6 +38,7 @@ def _execute_fixture(
             os.environ[str(k)] = str(v)
 
     interpreter = logos.LogosInterpreter(base_path=str(FIXTURES))
+    interpreter._current_file = str(fixture_path)
     parser = Lark(logos.LOGOS_GRAMMAR, parser="lalr")
 
     buf = StringIO()
@@ -213,6 +214,15 @@ class CanonTests(unittest.TestCase):
         self.assertIsNone(r.error)
         # Current semantics: imported file executes immediately in the same interpreter instance.
         _assert_value_line(self, r.stdout, "1")
+
+    def test_tradition_aliases_isolate_globals(self) -> None:
+        r = _execute_fixture("tradition_alias_isolation.lg")
+        self.assertIsNone(r.error)
+        _assert_value_line(self, r.stdout, "1")
+        _assert_value_line(self, r.stdout, "2")
+        _assert_value_line(self, r.stdout, "100")
+        _assert_value_line(self, r.stdout, "11")
+        _assert_value_line(self, r.stdout, "20")
 
 
 if __name__ == "__main__":

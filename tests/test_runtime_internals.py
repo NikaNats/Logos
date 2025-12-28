@@ -15,6 +15,7 @@ import logos
 class RuntimeInternalsTests(unittest.TestCase):
     def _run_program(self, source: str, base_path: str | None = None) -> tuple[logos.LogosInterpreter, str]:
         interp = logos.LogosInterpreter(base_path=base_path)
+        interp._current_file = os.path.join(interp.base_path, "__test__.lg")
         parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr")
         tree = parser.parse(source)
         buf = io.StringIO()

@@ -21,7 +21,7 @@ LOGOS_GRAMMAR = r"""
              | "inscribe" NAME (":" NAME)? "=" expr ";"              -> inscribe
              | "amend" mutable "=" expr ";"                          -> amend
              | "apocrypha" STRING "mystery" NAME "(" params? ")" ("->" NAME)? ";" -> apocrypha
-             | "tradition" STRING ";"                                -> tradition
+             | "tradition" STRING ("as" NAME)? ";"                  -> tradition
              | "chant" expr block "amen"                             -> chant
              | "discern" "(" expr ")" block "otherwise" block "amen" -> discernment
              | "vigil" block "confess" NAME block "amen"             -> vigil
@@ -134,6 +134,14 @@ class UserFunction:
     name: str
     params: List[str]
     body: Any
+
+
+@dataclass(frozen=True)
+class ModuleFunction:
+    """Binds a user-defined function to the interpreter that owns its globals."""
+    func: UserFunction
+    interpreter: "LogosInterpreter"
+    exports: Dict[str, Any]
 
 # ==========================================
 # 3. Component Managers (The "Spirits")
@@ -353,24 +361,178 @@ class StdLib:
     def _purge(lst: List):
         if isinstance(lst, list): lst.clear()
 
+
+class Module:
+    """Represents a loaded Logos module (its exported globals)."""
+
+    def __init__(
+        self,
+        path: str,
+        exports: Dict[str, Any],
+        types: Optional[Dict[str, str]] = None,
+        icons: Optional[Dict[str, Dict[str, str]]] = None,
+        interpreter: Optional["LogosInterpreter"] = None,
+    ):
+        self.path = path
+        self.exports = exports
+        self.types = types or {}
+        self.icons = icons or {}
+        self.interpreter = interpreter
+        # Tag so icon/type checks can treat modules as structured containers.
+        self.exports["__icon__"] = "Module"
+
+    def __getitem__(self, key: str) -> Any:
+        return self.exports[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.exports.get(key, default)
+
+
+class ModuleManager:
+    """Caches and loads external traditions (modules) with cycle detection."""
+
+    def __init__(self):
+        self._modules: Dict[str, Module] = {}
+        self._loading: Set[str] = set()
+
+    def load_module(self, requestor_path: str, rel_path: str) -> Module:
+        base_dir = os.path.dirname(requestor_path)
+        abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
+
+        if abs_path in self._modules:
+            return self._modules[abs_path]
+
+        if abs_path in self._loading:
+            print(f"\u2629 Cycle detected importing {rel_path}. Returning partial spirit.")
+            return Module(abs_path, {})
+
+        if not os.path.exists(abs_path):
+            raise LogosError(f"Schism: Tradition not found: {abs_path}")
+
+        self._loading.add(abs_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                source = f.read()
+
+            child_interp = LogosInterpreter(base_path=os.path.dirname(abs_path), module_manager=self)
+            child_interp._current_file = abs_path
+
+            tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(source)
+            child_interp.visit(tree)
+
+            exports: Dict[str, Any] = {}
+            for k, v in child_interp.scope.globals.items():
+                if k not in child_interp._builtin_snapshot:
+                    exports[k] = v
+                    continue
+                if v is not child_interp._builtin_snapshot[k]:
+                    exports[k] = v
+            for name, value in list(exports.items()):
+                if isinstance(value, UserFunction):
+                    exports[name] = ModuleFunction(value, child_interp, exports)
+            module = Module(
+                abs_path,
+                exports,
+                types=dict(child_interp._global_types),
+                icons=dict(child_interp._icons),
+                interpreter=child_interp,
+            )
+            self._modules[abs_path] = module
+            return module
+        finally:
+            self._loading.discard(abs_path)
+
+
+class TypeCanon:
+    """Shared Logos type rules for runtime and tooling."""
+
+    NUMERIC = {"HolyInt", "Int", "HolyFloat", "Float", "Double"}
+    TEXT = {"Text", "String"}
+    BOOL = {"Bool", "Verily", "Nay"}
+    LIST = {"Procession"}
+    VOID = {"Void", "None"}
+
+    @classmethod
+    def get_type_of_value(cls, value: Any) -> str:
+        if isinstance(value, bool):
+            return "Bool"
+        if isinstance(value, int):
+            return "HolyInt"
+        if isinstance(value, float):
+            return "HolyFloat"
+        if isinstance(value, str):
+            return "Text"
+        if isinstance(value, list):
+            return "Procession"
+        if value is None:
+            return "Void"
+        return "Mystery"
+
+    @classmethod
+    def are_compatible(cls, declared: str, actual: str) -> bool:
+        if declared == actual:
+            return True
+
+        if declared in ("HolyFloat", "Float", "Double") and actual in ("HolyInt", "Int"):
+            return True
+
+        if declared in cls.TEXT and actual in cls.TEXT:
+            return True
+
+        if declared in cls.BOOL and actual in cls.BOOL:
+            return True
+
+        if declared in cls.NUMERIC and actual in cls.NUMERIC:
+            if declared in ("HolyInt", "Int") and actual in ("HolyFloat", "Float", "Double"):
+                return False
+            return True
+
+        return False
+
+    @classmethod
+    def resolve_binary_op(cls, op: str, left_t: str, right_t: str) -> Optional[str]:
+        if op in ("add", "sub", "mul", "div", "+", "-", "*", "/"):
+            if left_t in cls.TEXT and right_t in cls.TEXT and op in ("add", "+"):
+                return "Text"
+
+            if left_t in cls.NUMERIC and right_t in cls.NUMERIC:
+                if op in ("div", "/"):
+                    return "HolyFloat"
+                if "HolyFloat" in (left_t, right_t) or "Float" in (left_t, right_t):
+                    return "HolyFloat"
+                return "HolyInt"
+
+            return None
+
+        if op in ("lt", "gt", "le", "ge", "eq", "ne", "<", ">", "<=", ">=", "is"):
+            if op in ("lt", "gt", "le", "ge", "<", ">", "<=", ">="):
+                if left_t in cls.NUMERIC and right_t in cls.NUMERIC:
+                    return "Bool"
+                return None
+            return "Bool"
+
+        return None
+
 # ==========================================
 # 4. The Interpreter (AST Visitor)
 # ==========================================
 
 class LogosInterpreter(Interpreter):
-    def __init__(self, base_path: Optional[str] = None):
+    def __init__(self, base_path: Optional[str] = None, module_manager: Optional[ModuleManager] = None):
         self.base_path = os.path.abspath(base_path or os.getcwd())
         
         # Helpers
         self.scope = ScopeManager()
         self.ffi = FFIManager()
         self.stdlib = StdLib(self.base_path)
+        self.module_manager = module_manager if module_manager else ModuleManager()
         
         # State
         self.stdlib.register_into(self.scope)
-        self._imported_files: Set[str] = set()
+        self._builtin_snapshot: Dict[str, Any] = dict(self.scope.globals)
         self._recursion_depth = 0
         self._max_recursion = int(os.environ.get("LOGOS_MAX_RECURSION", "1000"))
+        self._current_file = os.path.join(self.base_path, "__main__.lg")
 
         # Type metadata (runtime enforcement for declared annotations)
         self._global_types: Dict[str, str] = {}
@@ -478,17 +640,27 @@ class LogosInterpreter(Interpreter):
 
     def tradition(self, tree):
         rel_path = str(tree.children[0])[1:-1]
-        path = os.path.abspath(os.path.join(self.base_path, rel_path))
-        
-        if path in self._imported_files: return
-        self._imported_files.add(path)
-        
-        if not os.path.exists(path):
-            raise LogosError(f"Schism: Tradition not found: {path}")
+        alias = str(tree.children[1]) if len(tree.children) > 1 else None
 
-        with open(path, "r", encoding="utf-8") as f:
-            tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(f.read())
-            self.visit(tree)
+        requestor = getattr(self, "_current_file", os.path.join(self.base_path, "__main__.lg"))
+        module = self.module_manager.load_module(requestor_path=requestor, rel_path=rel_path)
+
+        for name, type_name in module.types.items():
+            self._declare_type(name, type_name)
+        if module.icons:
+            self._icons.update(module.icons)
+
+        if alias:
+            self.scope.declare(alias, module.exports)
+            return module.exports
+
+        for name, value in module.exports.items():
+            if name == "__icon__":
+                continue
+            if isinstance(value, ModuleFunction):
+                value = value.func
+            self.scope.set(name, value)
+        return module.exports
 
     def mystery_def(self, tree):
         name = str(tree.children[0])
@@ -535,6 +707,15 @@ class LogosInterpreter(Interpreter):
         args = [self.visit(c) for c in args_node.children] if args_node else []
 
         spirit = self.scope.get(func_name)
+
+        if isinstance(spirit, ModuleFunction):
+            sync: Dict[str, Any] = {}
+            for k, v in spirit.exports.items():
+                if k == "__icon__":
+                    continue
+                sync[k] = v.func if isinstance(v, ModuleFunction) else v
+            spirit.interpreter.scope.globals.update(sync)
+            return spirit.interpreter._invoke_user_function(spirit.func, args)
 
         if self._recursion_depth > self._max_recursion:
             raise LogosError("Pride: Recursion depth exceeded.")
@@ -703,26 +884,14 @@ class LogosInterpreter(Interpreter):
         self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
 
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
-        # Keep the rules intentionally small and explicit.
-        # Users can convert using `transfigure`.
-        if type_name in ("HolyInt", "Int"):
-            ok = isinstance(value, int) and not isinstance(value, bool)
-        elif type_name in ("HolyFloat", "Float", "Double"):
-            ok = (isinstance(value, (int, float)) and not isinstance(value, bool))
-        elif type_name in ("Bool", "Verily", "Nay"):
-            ok = isinstance(value, bool)
-        elif type_name in ("Text", "String"):
-            ok = isinstance(value, str)
-        elif type_name == "Procession":
-            ok = isinstance(value, list)
-        else:
-            # Unknown type names are accepted (they may be conceptual or for tooling).
+        actual_type = TypeCanon.get_type_of_value(value)
+
+        if actual_type == "Mystery":
             return
 
-        if not ok:
-            actual = type(value).__name__
+        if not TypeCanon.are_compatible(type_name, actual_type):
             raise LogosError(
-                f"Canon Error: Type mismatch for '{context}': expected {type_name}, got {actual}."
+                f"Canon Error: Type mismatch for '{context}': expected {type_name}, got {actual_type} ({value})."
             )
 
     def _evaluate_mutable_target(self, node):
@@ -843,6 +1012,7 @@ def main():
     entry_path = os.path.abspath(sys.argv[1])
     interpreter.base_path = os.path.dirname(entry_path)
     interpreter.stdlib.base_path = interpreter.base_path # Sync paths
+    interpreter._current_file = entry_path
 
     try:
         with open(entry_path, "r", encoding="utf-8") as f:
