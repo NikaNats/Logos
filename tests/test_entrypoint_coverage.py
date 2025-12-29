@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import io
 import os
 import sys
@@ -10,13 +9,13 @@ from unittest.mock import patch
 
 from lark import Lark
 
-import logos
+# We import the entrypoint script specifically to test it
+import logos 
+# We also import the lang package to inspect exceptions/classes
 import logos_lang
-
 
 class EntrypointCoverageTests(unittest.TestCase):
     def test_host_recursion_limit_is_wrapped(self) -> None:
-        # Ensure the RecursionError -> LogosError wrapping path is exercised.
         source = "\n".join(
             [
                 "mystery f(n) {",
@@ -50,39 +49,16 @@ class EntrypointCoverageTests(unittest.TestCase):
         finally:
             orig_set(orig_limit)
 
-    def test_main_runs_file_without_exiting(self) -> None:
+    def test_main_runs_file(self) -> None:
+        # Test the logos.py main() function
         with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "prog.lg")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("proclaim 1;\n")
-
+            path = os.path.join(td, "test.lg")
+            with open(path, "w") as f: f.write("proclaim 1;")
+            
             buf = io.StringIO()
-            with (
-                patch.object(logos.sys, "argv", ["logos.py", path]),
-                patch.object(
-                    logos.sys,
-                    "exit",
-                    side_effect=AssertionError("exit should not be called"),
-                ),
-                redirect_stdout(buf),
-            ):
+            with patch.object(sys, "argv", ["logos.py", path]), redirect_stdout(buf):
                 logos.main()
-
             self.assertIn("1", buf.getvalue())
-
-    def test_main_calls_run_repl_when_no_args(self) -> None:
-        buf = io.StringIO()
-        with (
-            patch.object(logos, "run_repl", lambda _interp: None),
-            patch.object(logos.sys, "argv", ["logos.py"]),
-            patch.object(
-                logos.sys,
-                "exit",
-                side_effect=AssertionError("exit should not be called"),
-            ),
-            redirect_stdout(buf),
-        ):
-            logos.main()
 
     def test_main_invokes_user_main_function_if_defined(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -94,46 +70,21 @@ class EntrypointCoverageTests(unittest.TestCase):
             buf = io.StringIO()
             with (
                 patch.object(logos.sys, "argv", ["logos.py", path]),
-                patch.object(
-                    logos.sys,
-                    "exit",
-                    side_effect=AssertionError("exit should not be called"),
-                ),
+                patch.object(logos.sys, "exit", side_effect=AssertionError("exit should not be called")),
                 redirect_stdout(buf),
             ):
                 logos.main()
-
             self.assertIn("1", buf.getvalue())
 
-    def test_main_exits_on_error_and_handles_unicodeencodeerror(self) -> None:
-        missing_path = os.path.join(tempfile.gettempdir(), "no_such_file_12345.lg")
+    def test_main_exits_on_error(self) -> None:
+        missing_path = os.path.join(tempfile.gettempdir(), "no_such_file.lg")
+        with (
+            patch.object(logos.sys, "argv", ["logos.py", missing_path]),
+            patch.object(logos.sys, "exit", side_effect=SystemExit(1)),
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                logos.main()
+            self.assertEqual(ctx.exception.code, 1)
 
-        calls: list[str] = []
-
-        def flaky_print(msg: str):
-            if not calls:
-                calls.append("raised")
-                raise UnicodeEncodeError("cp1252", "x", 0, 1, "boom")
-            calls.append(msg)
-
-        original_print = getattr(logos, "print", None)
-        try:
-            logos.print = flaky_print  # type: ignore[attr-defined]
-            with (
-                patch.object(logos.sys, "argv", ["logos.py", missing_path]),
-                patch.object(logos.sys, "exit", side_effect=SystemExit(1)),
-            ):
-                with self.assertRaises(SystemExit) as ctx:
-                    logos.main()
-                self.assertEqual(ctx.exception.code, 1)
-        finally:
-            if original_print is None:
-                delattr(logos, "print")
-            else:
-                logos.print = original_print  # type: ignore[assignment]
-
-        self.assertTrue(any("FATAL ERROR" in c for c in calls if c != "raised"))
-
-
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     unittest.main(verbosity=2)

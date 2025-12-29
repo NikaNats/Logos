@@ -4,11 +4,9 @@ import os
 import sys
 from pathlib import Path
 
-
 def _fatal(msg: str) -> None:
     sys.stderr.write(msg + "\n")
     sys.stderr.flush()
-
 
 try:
     try:
@@ -54,7 +52,6 @@ except ImportError:
 # --- PARSER CACHING ---
 _PARSER = None
 
-
 def get_parser() -> "Lark":
     """Lazily construct and cache the Logos grammar parser using the canonical definition."""
     global _PARSER
@@ -63,11 +60,9 @@ def get_parser() -> "Lark":
         _PARSER = Lark(LOGOS_GRAMMAR, parser="lalr", propagate_positions=True)
     return _PARSER
 
-
 class _ParserProxy:
     def parse(self, *args, **kwargs):
         return get_parser().parse(*args, **kwargs)
-
 
 PARSER = _ParserProxy()
 
@@ -83,21 +78,16 @@ def _make_diag(line0: int, col0: int, msg: str) -> Diagnostic:
         source="LOGOS Diakrisis",
     )
 
-
 def _infer_literal_type(expr: object) -> str | None:
     if isinstance(expr, Tree):
         rule = expr.data
         if rule == "number":
             s = str(expr.children[0])
             return "HolyFloat" if "." in s else "HolyInt"
-        if rule == "string":
-            return "Text"
-        if rule in ("verily", "nay"):
-            return "Bool"
-        if rule == "procession":
-            return "Procession"
+        if rule == "string": return "Text"
+        if rule in ("verily", "nay"): return "Bool"
+        if rule == "procession": return "Procession"
     return None
-
 
 def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagnostic:
     meta = getattr(node, "meta", None)
@@ -107,12 +97,10 @@ def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagn
     d.severity = severity
     return d
 
-
 def _collect_icon_schemas(tree: Tree) -> dict[str, dict[str, str]]:
     icons: dict[str, dict[str, str]] = {}
     def walk(node: object) -> None:
-        if not isinstance(node, Tree):
-            return
+        if not isinstance(node, Tree): return
         if node.data == "icon_def":
             name = str(node.children[0])
             fields: dict[str, str] = {}
@@ -120,32 +108,24 @@ def _collect_icon_schemas(tree: Tree) -> dict[str, dict[str, str]]:
                 if isinstance(child, Tree) and child.data == "field_decl":
                     fields[str(child.children[0])] = str(child.children[1])
             icons[name] = fields
-        for c in node.children:
-            walk(c)
+        for c in node.children: walk(c)
     walk(tree)
     return icons
-
 
 def _collect_var_types(tree: Tree) -> dict[str, str]:
     types: dict[str, str] = {}
     def walk(node: object) -> None:
-        if not isinstance(node, Tree):
-            return
+        if not isinstance(node, Tree): return
         if node.data == "inscribe" and len(node.children) == 3:
-            var_name = str(node.children[0])
-            declared = str(node.children[1])
-            types[var_name] = declared
-        for c in node.children:
-            walk(c)
+            types[str(node.children[0])] = str(node.children[1])
+        for c in node.children: walk(c)
     walk(tree)
     return types
-
 
 def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | None]], str | None]]:
     sigs = {}
     def walk(node: object) -> None:
-        if not isinstance(node, Tree):
-            return
+        if not isinstance(node, Tree): return
         if node.data == "mystery_def":
             name = str(node.children[0])
             idx = 1
@@ -161,30 +141,23 @@ def _collect_function_sigs(tree: Tree) -> dict[str, tuple[list[tuple[str, str | 
             if idx < len(node.children) and isinstance(node.children[idx], Token) and node.children[idx].type == "NAME":
                 ret_type = str(node.children[idx])
             sigs[name] = (params, ret_type)
-        for c in node.children:
-            walk(c)
+        for c in node.children: walk(c)
     walk(tree)
     return sigs
 
-
 def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | None:
     literal = _infer_literal_type(expr)
-    if literal:
-        return literal
-    if not isinstance(expr, Tree):
-        return None
+    if literal: return literal
+    if not isinstance(expr, Tree): return None
     rule = expr.data
 
-    if rule == "var":
-        return lookup_var_type(str(expr.children[0]))
-    if rule == "transfigure" and len(expr.children) >= 2:
-        return str(expr.children[1])
+    if rule == "var": return lookup_var_type(str(expr.children[0]))
+    if rule == "transfigure" and len(expr.children) >= 2: return str(expr.children[1])
 
     if rule in ("add", "sub", "mul", "div", "eq", "ne", "lt", "gt", "le", "ge"):
         l = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
         r = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
-        if not l or not r:
-            return None
+        if not l or not r: return None
         res = TypeCanon.resolve_binary_op(rule, l, r)
         if not res:
             verb = {
@@ -213,21 +186,17 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
         fname = str(expr.children[0])
         args = list(expr.children[1].children) if len(expr.children) > 1 and isinstance(expr.children[1], Tree) else []
         sig = func_sigs.get(fname)
-        if not sig:
-            return None
+        if not sig: return None
         params, ret = sig
         for i, arg in enumerate(args):
-            if i >= len(params):
-                break
+            if i >= len(params): break
             expected = params[i][1]
-            if not expected:
-                continue
+            if not expected: continue
             actual = _infer_expr_type(arg, lookup_var_type, func_sigs, diags)
             if actual and not TypeCanon.are_compatible(expected, actual):
                 diags.append(_diag_from_node(expr, f"Type mismatch: call '{fname}' arg {i+1} expects {expected} got {actual}.", DiagnosticSeverity.Error))
         return ret
     return None
-
 
 def _typecheck(tree: Tree) -> list[Diagnostic]:
     diags = []
@@ -238,21 +207,18 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
 
     def lookup(name):
         for s in reversed(scope_stack):
-            if name in s:
-                return s[name]
+            if name in s: return s[name]
         return mod_types.get(name)
 
     def walk(node):
-        if not isinstance(node, Tree):
-            return
+        if not isinstance(node, Tree): return
         
         if node.data == "block":
             dead = False
             for stmt in node.children:
                 if dead and isinstance(stmt, Tree):
                     diags.append(_diag_from_node(stmt, "Unreachable code after offer.", DiagnosticSeverity.Warning))
-                if isinstance(stmt, Tree) and stmt.data == "offer":
-                    dead = True
+                if isinstance(stmt, Tree) and stmt.data == "offer": dead = True
                 walk(stmt)
             return
 
@@ -262,18 +228,15 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             idx = 1
             if idx < len(node.children) and isinstance(node.children[idx], Tree) and node.children[idx].data == "params":
                 for p in node.children[idx].children:
-                    if len(p.children) >= 2:
-                        local_types[str(p.children[0])] = str(p.children[1])
+                     if len(p.children) >= 2: local_types[str(p.children[0])] = str(p.children[1])
             scope_stack.append(local_types)
-            for c in node.children:
-                walk(c)
+            for c in node.children: walk(c)
             scope_stack.pop()
             return
 
         if node.data == "inscribe" and len(node.children) == 3:
             var, decl, expr = str(node.children[0]), str(node.children[1]), node.children[2]
-            if scope_stack:
-                scope_stack[-1][var] = decl
+            if scope_stack: scope_stack[-1][var] = decl
             actual = _infer_expr_type(expr, lookup, sigs, diags)
             if actual and not TypeCanon.are_compatible(decl, actual):
                 diags.append(_diag_from_node(node, f"Type mismatch: declared {decl} but assigned {actual}.", DiagnosticSeverity.Error))
@@ -291,12 +254,10 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
         if node.data in ("call", "add", "sub", "mul", "div", "lt", "gt", "le", "ge", "neg"):
             _infer_expr_type(node, lookup, sigs, diags)
 
-        for c in node.children:
-            walk(c)
+        for c in node.children: walk(c)
 
     walk(tree)
     return diags
-
 
 def validate(ls: LanguageServer, uri: str) -> None:
     doc = ls.workspace.get_document(uri)
@@ -309,16 +270,11 @@ def validate(ls: LanguageServer, uri: str) -> None:
         diags = [_make_diag(line, col, str(e).split("\n")[0])]
     ls.publish_diagnostics(uri, diags)
 
-
 @SERVER.feature(TEXT_DOCUMENT_DID_OPEN)
-def did_open(ls, params):
-    validate(ls, params.text_document.uri)
-
+def did_open(ls, params): validate(ls, params.text_document.uri)
 
 @SERVER.feature(TEXT_DOCUMENT_DID_CHANGE)
-def did_change(ls, params):
-    validate(ls, params.text_document.uri)
-
+def did_change(ls, params): validate(ls, params.text_document.uri)
 
 if __name__ == "__main__":
     SERVER.start_io()
