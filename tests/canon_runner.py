@@ -11,7 +11,7 @@ from pathlib import Path
 
 from lark import Lark
 
-import logos
+import logos_lang
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ def _execute_fixture(
     fixture_name: str,
     *,
     env: dict[str, str] | None = None,
-    security: logos.SecurityContext | None = None,
+    security: logos_lang.SecurityContext | None = None,
 ) -> _ExecResult:
     fixture_path = FIXTURES / fixture_name
     if not fixture_path.exists():
@@ -38,14 +38,18 @@ def _execute_fixture(
         for k, v in env.items():
             os.environ[str(k)] = str(v)
 
-    interpreter = logos.LogosInterpreter(
-        base_path=str(FIXTURES), security=security or logos.SecurityContext.strict()
+    interpreter = logos_lang.LogosInterpreter(
+        base_path=str(FIXTURES), 
+        security=security or logos_lang.SecurityContext.strict()
     )
     interpreter._current_file = str(fixture_path)
-    parser = Lark(logos.LOGOS_GRAMMAR, parser="lalr")
+    parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
 
     buf = StringIO()
     err: Exception | None = None
+    # Patch IO to ensure we capture interpreter output deterministically.
+    interpreter.io = logos_lang.ConsoleIO()
+
     with redirect_stdout(buf):
         try:
             source = fixture_path.read_text(encoding="utf-8")
@@ -54,9 +58,9 @@ def _execute_fixture(
             # Invoke main if defined.
             try:
                 main_func = interpreter.scope.get("main")
-            except logos.LogosError:
+            except logos_lang.LogosError:
                 main_func = None
-            if isinstance(main_func, logos.UserFunction):
+            if isinstance(main_func, logos_lang.UserFunction):
                 interpreter._invoke_user_function(main_func, [])
         except Exception as e:
             err = e
@@ -64,8 +68,8 @@ def _execute_fixture(
     return _ExecResult(stdout=buf.getvalue(), error=err)
 
 
-def _permissive_security(allow_pointers: bool = False) -> logos.SecurityContext:
-    sec = logos.SecurityContext.permissive()
+def _permissive_security(allow_pointers: bool = False) -> logos_lang.SecurityContext:
+    sec = logos_lang.SecurityContext.permissive()
     sec.allow_unsafe_pointers = allow_pointers
     return sec
 

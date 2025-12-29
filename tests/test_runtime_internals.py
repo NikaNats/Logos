@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 from contextlib import redirect_stdout
 
 import ctypes
+from lark import Lark
 
-import logos
+import logos_lang
 
 
 class RuntimeInternalsTests(unittest.TestCase):
     def _run_program(
         self, source: str, base_path: str | None = None
-    ) -> tuple[logos.LogosInterpreter, str]:
-        interp = logos.LogosInterpreter(base_path=base_path)
+    ) -> tuple[logos_lang.LogosInterpreter, str]:
+        interp = logos_lang.LogosInterpreter(base_path=base_path)
         interp._current_file = os.path.join(interp.base_path, "__test__.lg")
-        parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr")
+        parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
         tree = parser.parse(source)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -27,7 +30,7 @@ class RuntimeInternalsTests(unittest.TestCase):
 
     def _make_security(
         self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True
-    ) -> logos.SecurityContext:
+    ) -> logos_lang.SecurityContext:
         libs = libs or [
             "mylib",
             "winlib",
@@ -38,7 +41,7 @@ class RuntimeInternalsTests(unittest.TestCase):
             "definitely_not_a_real_library_12345",
         ]
         whitelist = {name: set() for name in libs}
-        return logos.SecurityContext(
+        return logos_lang.SecurityContext(
             allow_ffi=True,
             whitelist=whitelist,
             allow_unsafe_pointers=allow_unsafe_pointers,
@@ -46,11 +49,11 @@ class RuntimeInternalsTests(unittest.TestCase):
 
     def _make_ffi(
         self, libs: list[str] | None = None, allow_unsafe_pointers: bool = True
-    ) -> logos.FFIManager:
-        return logos.FFIManager(self._make_security(libs, allow_unsafe_pointers))
+    ) -> logos_lang.FFIManager:
+        return logos_lang.FFIManager(self._make_security(libs, allow_unsafe_pointers))
 
     def test_scope_manager_get_set_declare(self) -> None:
-        s = logos.ScopeManager()
+        s = logos_lang.ScopeManager()
         s.set("g", 1)
         self.assertEqual(s.get("g"), 1)
 
@@ -60,11 +63,11 @@ class RuntimeInternalsTests(unittest.TestCase):
         s.pop_frame()
         self.assertEqual(s.get("g"), 1)
 
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             s.get("missing")
 
     def test_scope_manager_set_updates_existing_local_and_global(self) -> None:
-        s = logos.ScopeManager()
+        s = logos_lang.ScopeManager()
 
         # Update existing global
         s.set("x", 1)
@@ -95,39 +98,39 @@ class RuntimeInternalsTests(unittest.TestCase):
         ffi.libs["mylib.dll"] = object()  # prevent CDLL load
         self.assertEqual(ffi.load_library("mylib.dll"), "mylib.dll")
 
-        original_os_name = logos.os.name
-        original_platform = logos.sys.platform
+        original_os_name = logos_lang.ffi.os.name
+        original_platform = logos_lang.ffi.sys.platform
         try:
             # Windows filename branch
-            logos.os.name = "nt"
-            logos.sys.platform = "win32"
+            logos_lang.ffi.os.name = "nt"
+            logos_lang.ffi.sys.platform = "win32"
             ffi.libs["winlib.dll"] = object()
             self.assertEqual(ffi.load_library("winlib"), "winlib.dll")
 
             # macOS filename branch
-            logos.os.name = "posix"
-            logos.sys.platform = "darwin"
+            logos_lang.ffi.os.name = "posix"
+            logos_lang.ffi.sys.platform = "darwin"
             ffi.libs["libm.dylib"] = object()
             self.assertEqual(ffi.load_library("m"), "libm.dylib")
 
             # Other POSIX filename branch
-            logos.os.name = "posix"
-            logos.sys.platform = "linux"
+            logos_lang.ffi.os.name = "posix"
+            logos_lang.ffi.sys.platform = "linux"
             ffi.libs["libc.so"] = object()
             self.assertEqual(ffi.load_library("c"), "libc.so")
         finally:
-            logos.os.name = original_os_name
-            logos.sys.platform = original_platform
+            logos_lang.ffi.os.name = original_os_name
+            logos_lang.ffi.sys.platform = original_platform
 
     def test_ffi_load_library_error_path(self) -> None:
         ffi = self._make_ffi()
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             ffi.load_library("definitely_not_a_real_library_12345")
 
     def test_ffi_marshal_args_bytes_and_numbers(self) -> None:
         ffi = self._make_ffi()
         # Create a dummy ForeignFunction definition for marshalling only.
-        dummy = logos.ForeignFunction(
+        dummy = logos_lang.ForeignFunction(
             func=None,
             restype=ctypes.c_double,
             argtypes=[ctypes.c_char_p, ctypes.c_double, ctypes.c_longlong],
@@ -139,23 +142,23 @@ class RuntimeInternalsTests(unittest.TestCase):
 
     def test_ffi_marshal_args_else_branch(self) -> None:
         ffi = self._make_ffi()
-        dummy = logos.ForeignFunction(
+        dummy = logos_lang.ForeignFunction(
             func=None, restype=ctypes.c_double, argtypes=[ctypes.c_bool]
         )
         out = ffi.marshal_args([True], dummy)
         self.assertEqual(out, [True])
 
     def test_amend_undeclared_raises(self) -> None:
-        interp = logos.LogosInterpreter()
-        parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr")
-        with self.assertRaises(logos.LogosError):
+        interp = logos_lang.LogosInterpreter()
+        parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
+        with self.assertRaises(logos_lang.LogosError):
             tree = parser.parse("amend x = 1;")
             interp.visit(tree)
 
     def test_stdlib_io_and_list_ops(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            std = logos.StdLib(td)
-            scope = logos.ScopeManager()
+            std = logos_lang.StdLib(td)
+            scope = logos_lang.ScopeManager()
             std.register_into(scope)
 
             fd = scope.get("__sys_open")("x.txt", 1)
@@ -183,8 +186,8 @@ class RuntimeInternalsTests(unittest.TestCase):
 
     def test_builtin_exit_and_sleep_are_callable(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            std = logos.StdLib(td)
-            scope = logos.ScopeManager()
+            std = logos_lang.StdLib(td)
+            scope = logos_lang.ScopeManager()
             std.register_into(scope)
 
             with patch("time.sleep") as sleep:
@@ -195,16 +198,16 @@ class RuntimeInternalsTests(unittest.TestCase):
                 scope.get("__sys_exit")(0)
 
     def test_interpreter_init_handles_recursionlimit_failure(self) -> None:
-        original = logos.sys.setrecursionlimit
+        original = logos_lang.interpreter.sys.setrecursionlimit
         try:
 
             def boom(_):
                 raise Exception("nope")
 
-            logos.sys.setrecursionlimit = boom
-            _ = logos.LogosInterpreter()
+            logos_lang.interpreter.sys.setrecursionlimit = boom
+            _ = logos_lang.LogosInterpreter()
         finally:
-            logos.sys.setrecursionlimit = original
+            logos_lang.interpreter.sys.setrecursionlimit = original
 
     def test_emit_unicode_fallback_path(self) -> None:
         calls: list[str] = []
@@ -216,23 +219,24 @@ class RuntimeInternalsTests(unittest.TestCase):
                 raise UnicodeEncodeError("cp1252", "x", 0, 1, "boom")
             calls.append(msg)
 
-        original_print = getattr(logos, "print", None)
+        original_logos_module = sys.modules.get("logos")
+        stub = types.SimpleNamespace(print=flaky_print)
         try:
-            logos.print = flaky_print  # type: ignore[attr-defined]
-            interp = logos.LogosInterpreter()
+            sys.modules["logos"] = stub
+            interp = logos_lang.LogosInterpreter()
             interp._emit("☩", "hello")
         finally:
-            if original_print is None:
-                delattr(logos, "print")
+            if original_logos_module is None:
+                sys.modules.pop("logos", None)
             else:
-                logos.print = original_print  # type: ignore[assignment]
+                sys.modules["logos"] = original_logos_module
 
         self.assertTrue(any("hello" in c for c in calls if c != "raised"))
 
     def test_supplicate_can_be_tested(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
         # Build a small parse tree for `supplicate "x"` and patch input.
-        parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr")
+        parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr", start="expr")
         tree = parser.parse('supplicate "prompt"')
         with patch("builtins.input", return_value="answer"):
             self.assertEqual(interp.visit(tree), "answer")
@@ -254,7 +258,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertEqual(out, "")
 
     def test_mystery_def_invalid_name_raises(self) -> None:
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             self._run_program("mystery BadName() { silence; } amen")
 
     def test_mystery_def_return_type_is_accepted(self) -> None:
@@ -269,19 +273,19 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertIn("1", out)
 
     def test_calling_non_callable_raises(self) -> None:
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             self._run_program("inscribe x = 1; x();")
 
     def test_user_function_arity_mismatch_raises(self) -> None:
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             self._run_program("mystery foo(a) { offer a; } amen\nfoo();")
 
     def test_icon_def_invalid_name_raises(self) -> None:
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             self._run_program("icon bad { a: HolyInt; } amen")
 
     def test_icon_def_skips_non_field_decl_child(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
 
         class Dummy:
             def __init__(self, data: str):
@@ -304,21 +308,21 @@ class RuntimeInternalsTests(unittest.TestCase):
         self._run_program("amend now.some_attr = 1;")
 
     def test_perform_mutation_invalid_target_raises(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
 
         class FakeNode:
             data = "mut_weird"
             children: list[object] = []
 
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             interp._perform_mutation(FakeNode(), 1)
 
     def test_declare_type_redeclaration_errors_global_and_local(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
 
         # Global redeclare
         interp._declare_type("x", "HolyInt")
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             interp._declare_type("x", "HolyFloat")
 
         # Local redeclare
@@ -326,14 +330,14 @@ class RuntimeInternalsTests(unittest.TestCase):
         interp._type_stack.append({})
         try:
             interp._declare_type("y", "HolyInt")
-            with self.assertRaises(logos.LogosError):
+            with self.assertRaises(logos_lang.LogosError):
                 interp._declare_type("y", "HolyFloat")
         finally:
             interp._type_stack.pop()
             interp.scope.pop_frame()
 
     def test_enforce_icon_field_type_early_returns(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
 
         # No __icon__
         interp._enforce_icon_field_type({}, "a", 1)
@@ -346,7 +350,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         interp._enforce_icon_field_type({"__icon__": "Thing"}, "missing", 1)
 
     def test_enforce_value_type_branches_and_unknown_type(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
         interp._enforce_value_type(1, "HolyInt", context="x")
         interp._enforce_value_type(1.0, "Float", context="x")
         interp._enforce_value_type(True, "Bool", context="x")
@@ -355,11 +359,11 @@ class RuntimeInternalsTests(unittest.TestCase):
         # Unknown types are accepted
         interp._enforce_value_type(object(), "MysteryType", context="x")
 
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             interp._enforce_value_type("nope", "HolyInt", context="x")
 
     def test_evaluate_mutable_target_attr_and_item_paths(self) -> None:
-        interp = logos.LogosInterpreter()
+        interp = logos_lang.LogosInterpreter()
 
         class Node:
             def __init__(self, data: str, children: list[object]):
@@ -373,7 +377,7 @@ class RuntimeInternalsTests(unittest.TestCase):
 
         # list item
         interp.scope.set("lst", [1, 2, 3])
-        idx_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
+        idx_tree = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
             "1"
         )
         node2 = Node("mut_item", [Node("mut_var", ["lst"]), idx_tree])
@@ -381,7 +385,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertEqual(interp._evaluate_mutable_target(node2), 2)
 
         # Fallback branch: visit the node directly
-        expr_tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
+        expr_tree = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr", start="expr").parse(
             "1"
         )
         self.assertEqual(interp._evaluate_mutable_target(expr_tree), 1)
@@ -395,10 +399,10 @@ class RuntimeInternalsTests(unittest.TestCase):
         self._run_program("contemplate(1){ aspect 2: { silence; } } amen")
 
     def test_unknown_tradition_raises(self) -> None:
-        interp = logos.LogosInterpreter(base_path=os.getcwd())
-        parser = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr", start="statement")
+        interp = logos_lang.LogosInterpreter(base_path=os.getcwd())
+        parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr", start="statement")
         t = parser.parse('tradition "no_such_file_12345.lg";')
-        with self.assertRaises(logos.LogosError):
+        with self.assertRaises(logos_lang.LogosError):
             interp.visit(t)
 
 

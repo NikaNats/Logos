@@ -8,7 +8,10 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from lark import Lark
+
 import logos
+import logos_lang
 
 
 class EntrypointCoverageTests(unittest.TestCase):
@@ -22,7 +25,7 @@ class EntrypointCoverageTests(unittest.TestCase):
                 "proclaim f(500);",
             ]
         )
-        tree = logos.Lark(logos.LOGOS_GRAMMAR, parser="lalr").parse(source)
+        tree = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr").parse(source)
 
         orig_limit = sys.getrecursionlimit()
         orig_set = sys.setrecursionlimit
@@ -35,13 +38,13 @@ class EntrypointCoverageTests(unittest.TestCase):
                 raise Exception("blocked")
 
             sys.setrecursionlimit = boom  # type: ignore[assignment]
-            interp = logos.LogosInterpreter()
+            interp = logos_lang.LogosInterpreter()
         finally:
             sys.setrecursionlimit = orig_set
 
         try:
             interp._max_recursion = 10**9
-            with self.assertRaises(logos.LogosError) as ctx:
+            with self.assertRaises(logos_lang.LogosError) as ctx:
                 interp.visit(tree)
             self.assertIn("Host recursion limit reached", str(ctx.exception))
         finally:
