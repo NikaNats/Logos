@@ -11,9 +11,6 @@
         "Programming Languages"
     ],
     "main": "./dist/extension.js",
-    "activationEvents": [
-        "onLanguage:logos"
-    ],
     "scripts": {
         "compile": "tsc -p .",
         "package": "npm run compile && vsce package"
