@@ -17,10 +17,12 @@ import logos_lang
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
 
+
 @dataclass
 class _ExecResult:
     stdout: str
     error: Exception | None
+
 
 def _execute_fixture(
     fixture_name: str,
@@ -38,8 +40,8 @@ def _execute_fixture(
 
     # Use the library interpreter
     interpreter = logos_lang.LogosInterpreter(
-        base_path=str(FIXTURES), 
-        security=security or logos_lang.SecurityContext.strict()
+        base_path=str(FIXTURES),
+        security=security or logos_lang.SecurityContext.strict(),
     )
     interpreter._current_file = str(fixture_path)
     parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
@@ -47,8 +49,8 @@ def _execute_fixture(
     buf = StringIO()
     err: Exception | None = None
     # Patch the interpreter's IO to capture output
-    interpreter.io = logos_lang.ConsoleIO() 
-    # Use contextlib to catch raw prints if necessary, 
+    interpreter.io = logos_lang.ConsoleIO()
+    # Use contextlib to catch raw prints if necessary,
     # but strictly we should mock interpreter.io in a pure unit test.
     # For now, we redirect stdout to capture standard prints.
     with redirect_stdout(buf):
@@ -67,14 +69,17 @@ def _execute_fixture(
 
     return _ExecResult(stdout=buf.getvalue(), error=err)
 
+
 def _permissive_security(allow_pointers: bool = False) -> logos_lang.SecurityContext:
     sec = logos_lang.SecurityContext.permissive()
     sec.allow_unsafe_pointers = allow_pointers
     return sec
 
+
 def _assert_value_line(test: unittest.TestCase, stdout: str, value: str) -> None:
     pattern = rf"(?:☩|\+)\s+{re.escape(value)}"
     test.assertRegex(stdout, pattern)
+
 
 class CanonTests(unittest.TestCase):
     # (Existing tests remain unchanged, they use the helpers above)
@@ -82,7 +87,7 @@ class CanonTests(unittest.TestCase):
         r = _execute_fixture("precedence_1.lg")
         self.assertIsNone(r.error)
         _assert_value_line(self, r.stdout, "14")
-    
+
     def test_associativity_left(self) -> None:
         r = _execute_fixture("precedence_2.lg")
         self.assertIsNone(r.error)
@@ -144,18 +149,26 @@ class CanonTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_puts_no_crash(self) -> None:
-        r = _execute_fixture("ffi_puts_windows.lg", security=_permissive_security(allow_pointers=True))
+        r = _execute_fixture(
+            "ffi_puts_windows.lg", security=_permissive_security(allow_pointers=True)
+        )
         self.assertIsNone(r.error)
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_arity_mismatch_rejected(self) -> None:
-        r = _execute_fixture("foreign_arity_mismatch.lg", security=_permissive_security(allow_pointers=True))
+        r = _execute_fixture(
+            "foreign_arity_mismatch.lg",
+            security=_permissive_security(allow_pointers=True),
+        )
         self.assertIsNotNone(r.error)
         self.assertIn("Invocation Error", str(r.error))
 
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows-only FFI test")
     def test_ffi_infer_argtypes(self) -> None:
-        r = _execute_fixture("ffi_infer_argtypes_windows.lg", security=_permissive_security(allow_pointers=True))
+        r = _execute_fixture(
+            "ffi_infer_argtypes_windows.lg",
+            security=_permissive_security(allow_pointers=True),
+        )
         self.assertIsNone(r.error)
 
     def test_contemplation_wildcard(self) -> None:
@@ -213,6 +226,7 @@ class CanonTests(unittest.TestCase):
         _assert_value_line(self, r.stdout, "100")
         _assert_value_line(self, r.stdout, "11")
         _assert_value_line(self, r.stdout, "20")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -12,8 +12,11 @@ from lark import Lark
 # Import from package
 import logos_lang
 
+
 class RuntimeInternalsTests(unittest.TestCase):
-    def _run_program(self, source: str, base_path: str | None = None) -> tuple[logos_lang.LogosInterpreter, str]:
+    def _run_program(
+        self, source: str, base_path: str | None = None
+    ) -> tuple[logos_lang.LogosInterpreter, str]:
         interp = logos_lang.LogosInterpreter(base_path=base_path)
         # Mock IO for capture
         interp.io = logos_lang.ConsoleIO()
@@ -27,7 +30,9 @@ class RuntimeInternalsTests(unittest.TestCase):
     def _make_ffi(self, libs=None, allow_unsafe=True):
         libs = libs or ["m", "c"]
         whitelist = {name: set() for name in libs}
-        sec = logos_lang.SecurityContext(allow_ffi=True, whitelist=whitelist, allow_unsafe_pointers=allow_unsafe)
+        sec = logos_lang.SecurityContext(
+            allow_ffi=True, whitelist=whitelist, allow_unsafe_pointers=allow_unsafe
+        )
         return logos_lang.FFIManager(sec)
 
     def test_scope_manager_get_set_declare(self) -> None:
@@ -98,7 +103,9 @@ class RuntimeInternalsTests(unittest.TestCase):
             self.assertEqual(scope.get("measure")([1, 2]), 2)
 
     def test_chant_runs_at_least_once(self) -> None:
-        _, out = self._run_program("inscribe x=0; chant x<3 { amend x=x+1; } amen proclaim x;")
+        _, out = self._run_program(
+            "inscribe x=0; chant x<3 { amend x=x+1; } amen proclaim x;"
+        )
         self.assertIn("3", out)
 
     def test_mystery_def_invalid_name_raises(self) -> None:
@@ -119,6 +126,7 @@ class RuntimeInternalsTests(unittest.TestCase):
         t = parser.parse('tradition "no_such_file_12345.lg";')
         with self.assertRaises(logos_lang.LogosError):
             interp.visit(t)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

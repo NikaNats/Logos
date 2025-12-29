@@ -3,10 +3,11 @@ import pytest
 from lark import Lark
 
 # IMPORT FROM NEW PACKAGE
-import logos_lang 
+import logos_lang
 
 hypothesis = pytest.importorskip("hypothesis")
 strategies = hypothesis.strategies
+
 
 class FuzzTests(unittest.TestCase):
     @hypothesis.given(strategies.text())
@@ -25,6 +26,7 @@ class FuzzTests(unittest.TestCase):
             # Allow Lark to raise its own UnexpectedInput, but fail on other internal errors.
             if "UnexpectedInput" not in type(e).__name__:
                 self.fail(f"Interpreter crashed on input: {e}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

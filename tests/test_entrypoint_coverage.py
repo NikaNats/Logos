@@ -10,9 +10,11 @@ from unittest.mock import patch
 from lark import Lark
 
 # We import the entrypoint script specifically to test it
-import logos 
+import logos
+
 # We also import the lang package to inspect exceptions/classes
 import logos_lang
+
 
 class EntrypointCoverageTests(unittest.TestCase):
     def test_host_recursion_limit_is_wrapped(self) -> None:
@@ -53,8 +55,9 @@ class EntrypointCoverageTests(unittest.TestCase):
         # Test the logos.py main() function
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "test.lg")
-            with open(path, "w") as f: f.write("proclaim 1;")
-            
+            with open(path, "w") as f:
+                f.write("proclaim 1;")
+
             buf = io.StringIO()
             with patch.object(sys, "argv", ["logos.py", path]), redirect_stdout(buf):
                 logos.main()
@@ -70,7 +73,11 @@ class EntrypointCoverageTests(unittest.TestCase):
             buf = io.StringIO()
             with (
                 patch.object(logos.sys, "argv", ["logos.py", path]),
-                patch.object(logos.sys, "exit", side_effect=AssertionError("exit should not be called")),
+                patch.object(
+                    logos.sys,
+                    "exit",
+                    side_effect=AssertionError("exit should not be called"),
+                ),
                 redirect_stdout(buf),
             ):
                 logos.main()
@@ -85,6 +92,7 @@ class EntrypointCoverageTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 logos.main()
             self.assertEqual(ctx.exception.code, 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
