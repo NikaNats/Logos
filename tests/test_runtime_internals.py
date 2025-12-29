@@ -219,7 +219,8 @@ class RuntimeInternalsTests(unittest.TestCase):
         original_print = getattr(logos, "print", None)
         try:
             logos.print = flaky_print  # type: ignore[attr-defined]
-            logos.LogosInterpreter._emit("☩", "hello")
+            interp = logos.LogosInterpreter()
+            interp._emit("☩", "hello")
         finally:
             if original_print is None:
                 delattr(logos, "print")

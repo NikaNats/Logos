@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Union, TextIO
 
@@ -117,6 +118,33 @@ class SecurityError(LogosError):
     """Raised when a program attempts a forbidden action."""
 
     pass
+
+
+class IOHandler(ABC):
+    """Abstracts I/O so interpreters can be hosted in different frontends."""
+
+    @abstractmethod
+    def emit(self, symbol: str, message: str) -> None:
+        ...
+
+    @abstractmethod
+    def read_input(self, prompt: str) -> str:
+        ...
+
+
+class ConsoleIO(IOHandler):
+    """Console-backed I/O used by the CLI and REPL."""
+
+    def emit(self, symbol: str, message: str) -> None:
+        line = f"{symbol} {message}"
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            fallback = "+" if symbol.strip() else ""
+            print(f"{fallback} {message}".strip())
+
+    def read_input(self, prompt: str) -> str:
+        return input(prompt)
 
 
 @dataclass
@@ -662,6 +690,7 @@ class LogosInterpreter(Interpreter):
         base_path: Optional[str] = None,
         module_manager: Optional[ModuleManager] = None,
         security: Optional[SecurityContext] = None,
+        io_handler: Optional[IOHandler] = None,
     ):
         self.base_path = os.path.abspath(base_path or os.getcwd())
 
@@ -672,6 +701,7 @@ class LogosInterpreter(Interpreter):
         self.stdlib = StdLib(self.base_path)
         self.module_manager = module_manager if module_manager else ModuleManager()
         self.module_manager.security = self.security
+        self.io = io_handler if io_handler is not None else ConsoleIO()
 
         # State
         self.stdlib.register_into(self.scope)
@@ -705,16 +735,17 @@ class LogosInterpreter(Interpreter):
         prefix = "Verily" if val is True else "Nay" if val is False else str(val)
         self._emit("☩", prefix)
 
-    @staticmethod
-    def _emit(symbol: str, message: str) -> None:
-        """Emit a line to stdout, resilient to narrow console encodings."""
-        line = f"{symbol} {message}"
+    def _emit(self, symbol: str, message: str) -> None:
+        """Emit through the configured IO handler with a console-safe fallback."""
         try:
-            print(line)
-        except UnicodeEncodeError:
-            # Fall back to ASCII-only prefix in environments like cp1252.
-            fallback = "+" if symbol.strip() else ""
-            print(f"{fallback} {message}".strip())
+            self.io.emit(symbol, message)
+        except Exception:
+            # Fallback to direct print to avoid losing diagnostics in host issues.
+            line = f"{symbol} {message}"
+            try:
+                print(line)
+            except Exception:
+                pass
 
     def inscribe(self, tree):
         name = str(tree.children[0])
@@ -1194,7 +1225,11 @@ class LogosInterpreter(Interpreter):
         return val
 
     def supplicate(self, tree):
-        return input(str(self.visit(tree.children[0])))
+        prompt = str(self.visit(tree.children[0]))
+        try:
+            return self.io.read_input(prompt)
+        except Exception:
+            return input(prompt)
 
     def contemplation(self, tree):
         target = self.visit(tree.children[0])
@@ -1228,7 +1263,7 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
 
     while True:
         try:
-            text = input(">> ").strip()
+            text = interpreter.io.read_input(">> ").strip()
             if not text:
                 continue
             if text in ("exit", "quit", "depart(0);"):
@@ -1239,10 +1274,10 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
             if isinstance(result, ReturnValue):
                 result = result.value
             if result is not None:
-                print(f"=> {result}")
+                interpreter.io.emit("=>", str(result))
 
         except (LogosError, Exception) as e:
-            print(f"Anathema: {e}")
+            interpreter.io.emit("Anathema:", str(e))
 
 
 def main():
@@ -1283,7 +1318,8 @@ def main():
     if args.allow_unsafe_pointers:
         security.allow_unsafe_pointers = True
 
-    interpreter = LogosInterpreter(security=security)
+    io_handler = ConsoleIO()
+    interpreter = LogosInterpreter(security=security, io_handler=io_handler)
 
     if not args.script:
         run_repl(interpreter)
