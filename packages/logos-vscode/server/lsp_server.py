@@ -160,19 +160,7 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
         if not l or not r: return None
         res = TypeCanon.resolve_binary_op(rule, l, r)
         if not res:
-            verb = {
-                "add": "add",
-                "sub": "subtract",
-                "mul": "multiply",
-                "div": "divide",
-                "eq": "compare",
-                "ne": "compare",
-                "lt": "compare",
-                "gt": "compare",
-                "le": "compare",
-                "ge": "compare",
-            }.get(rule, rule)
-            diags.append(_diag_from_node(expr, f"Type mismatch: cannot {verb} {l} and {r}.", DiagnosticSeverity.Error))
+            diags.append(_diag_from_node(expr, f"Type mismatch: cannot {rule} {l} and {r}.", DiagnosticSeverity.Error))
             return None
         return res
     
