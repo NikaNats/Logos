@@ -16,14 +16,20 @@ class StdLib:
         self._next_fd = 3
 
     def register_into(self, scope: "ScopeManager"):
-        scope.register_builtin("now", lambda: int(time.time() * 1000))
-        scope.register_builtin("env", lambda k: os.environ.get(str(k), ""))
+        now_fn = lambda: int(time.time() * 1000)
+        env_fn = lambda k: os.environ.get(str(k), "")
+        scope.register_builtin("now", now_fn)
+        scope.register_builtin("env", env_fn)
+        # Backward-compatible aliases used by canonical .lg modules.
+        scope.register_builtin("__sys_time", now_fn)
+        scope.register_builtin("__sys_env", env_fn)
         scope.register_builtin("__sys_sleep", lambda ms: time.sleep(float(ms) / 1000.0))
         scope.register_builtin("__sys_exit", lambda c: sys.exit(int(c)))
         scope.register_builtin("__sys_open", self._open)
         scope.register_builtin("__sys_close", self._close)
         scope.register_builtin("__sys_write", self._write)
         scope.register_builtin("__sys_read", self._read)
+        scope.register_builtin("passage", self._passage)
         scope.register_builtin("measure", self._measure)
         scope.register_builtin("append", self._append)
         scope.register_builtin("extract", self._extract)
@@ -63,6 +69,17 @@ class StdLib:
         if not f:
             return ""
         return f.read() if int(length) < 0 else f.read(int(length))
+
+    @staticmethod
+    def _passage(text: Any, start: int, length: int) -> str:
+        s = str(text)
+        i = int(start)
+        n = int(length)
+        if n <= 0:
+            return ""
+        if i < 0:
+            i = max(len(s) + i, 0)
+        return s[i : i + n]
 
     @staticmethod
     def _measure(x: Any) -> int:

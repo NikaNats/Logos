@@ -227,6 +227,20 @@ class CanonTests(unittest.TestCase):
         _assert_value_line(self, r.stdout, "11")
         _assert_value_line(self, r.stdout, "20")
 
+    def test_genesis_module_now_and_env(self) -> None:
+        r = _execute_fixture(
+            "stdlib_genesis_smoke_bits.lg", env={"LOGOS_TEST_ENV": "beacon"}
+        )
+        self.assertIsNone(r.error)
+        _assert_value_line(self, r.stdout, "Verily")
+        _assert_value_line(self, r.stdout, "beacon")
+
+    def test_psalms_module_helpers(self) -> None:
+        r = _execute_fixture("stdlib_psalms_basics.lg")
+        self.assertIsNone(r.error)
+        _assert_value_line(self, r.stdout, "a")
+        _assert_value_line(self, r.stdout, "Verily")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,0 +1,6 @@
+tradition "../../lib/genesis.lg";
+
+mystery main() {
+    proclaim now() > 0;
+    proclaim get_env("LOGOS_TEST_ENV", "fallback");
+} amen

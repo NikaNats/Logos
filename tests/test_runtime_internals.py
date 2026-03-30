@@ -67,6 +67,30 @@ class RuntimeInternalsTests(unittest.TestCase):
         self.assertIs(ffi.infer_ctype_from_value(1), ctypes.c_double)
         self.assertIs(ffi.infer_ctype_from_value(object()), ctypes.c_double)
 
+    def test_ffi_infer_pointer_blocked_in_safe_mode(self) -> None:
+        ffi = self._make_ffi(allow_unsafe=False)
+        with self.assertRaises(logos_lang.SecurityError):
+            ffi.infer_ctype_from_value("x")
+
+    def test_invoke_foreign_blocks_inferred_pointer_in_safe_mode(self) -> None:
+        sec = logos_lang.SecurityContext(
+            allow_ffi=True,
+            whitelist={"c": {"puts"}},
+            allow_unsafe_pointers=False,
+        )
+        interp = logos_lang.LogosInterpreter(security=sec)
+
+        def dummy(*args):
+            return len(args)
+
+        dummy.argtypes = []
+        foreign = logos_lang.ForeignFunction(
+            func=dummy, restype=ctypes.c_double, argtypes=[]
+        )
+
+        with self.assertRaises(logos_lang.SecurityError):
+            interp._invoke_foreign_function(foreign, ["x"])
+
     def test_ffi_load_library_error_path(self) -> None:
         ffi = self._make_ffi()
         with self.assertRaises(logos_lang.LogosError):

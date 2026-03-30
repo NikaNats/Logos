@@ -12,6 +12,12 @@ class FFIManager:
         self.security = security
         self.libs: Dict[str, ctypes.CDLL] = {}
 
+    def _ensure_pointer_policy(self, c_type: Any) -> None:
+        if c_type == ctypes.c_char_p and not self.security.allow_unsafe_pointers:
+            raise SecurityError(
+                "Security Violation: Inferred raw pointer argument is forbidden in safe mode."
+            )
+
     def _clean_lib_name(self, lib_name: str) -> str:
         base = lib_name.split(".")[0]
         if base.startswith("lib"):
@@ -98,6 +104,7 @@ class FFIManager:
     def marshal_args(self, args: List[Any], definition: ForeignFunction) -> List[Any]:
         c_args = []
         for val, c_type in zip(args, definition.argtypes):
+            self._ensure_pointer_policy(c_type)
             if c_type == ctypes.c_char_p:
                 if isinstance(val, (bytes, bytearray)):
                     c_args.append(bytes(val))
@@ -111,9 +118,9 @@ class FFIManager:
                 c_args.append(val)
         return c_args
 
-    @staticmethod
-    def infer_ctype_from_value(val: Any) -> Any:
+    def infer_ctype_from_value(self, val: Any) -> Any:
         if isinstance(val, (bytes, bytearray, str)):
+            self._ensure_pointer_policy(ctypes.c_char_p)
             return ctypes.c_char_p
         if isinstance(val, bool):
             return ctypes.c_bool

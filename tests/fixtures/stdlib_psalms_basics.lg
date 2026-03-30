@@ -1,0 +1,6 @@
+tradition "../../lib/psalms.lg";
+
+mystery main() {
+    proclaim first_char("abc");
+    proclaim contains("cathedral", "the");
+} amen
