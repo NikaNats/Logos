@@ -3,8 +3,10 @@ import re
 import sys
 from typing import Any, Dict, List, Optional
 
+from lark import Tree
 from lark.visitors import Interpreter
 
+from .bytecode import BytecodeCompiler, BytecodeProgram, BytecodeUnsupported, BytecodeVM
 from .exceptions import LogosError
 from .ffi import FFIManager
 from .interfaces import ConsoleIO, IOHandler, _resolve_print
@@ -18,6 +20,7 @@ from .models import (
 )
 from .modules import ModuleManager
 from .scope import ScopeManager
+from .static_analysis import StaticTypeAnalyzer
 from .stdlib import StdLib
 from .types import TypeCanon
 
@@ -29,6 +32,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
         module_manager: Optional[ModuleManager] = None,
         security: Optional[SecurityContext] = None,
         io_handler: Optional[IOHandler] = None,
+        execution_engine: Optional[str] = None,
+        enable_static_type_elision: bool = True,
+        trusted_lsp_types: Optional[Dict[str, str]] = None,
     ):
         self.base_path = os.path.abspath(base_path or os.getcwd())
         self.security = security if security is not None else SecurityContext.strict()
@@ -56,6 +62,63 @@ class LogosInterpreter(Interpreter[Any, Any]):
 
         self._re_icon = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
         self._re_func = re.compile(r"^[a-z][a-z0-9_]*$")
+        self.execution_engine = (
+            execution_engine or os.environ.get("LOGOS_EXECUTION_ENGINE", "vm-hybrid")
+        ).lower()
+        self.enable_static_type_elision = enable_static_type_elision
+        self.trusted_lsp_types = dict(trusted_lsp_types or {})
+        self._elided_declared_types: Dict[str, str] = {}
+        self._bytecode_compiler = BytecodeCompiler()
+        self._bytecode_vm = BytecodeVM(self)
+        self._last_execution_backend = "visitor"
+
+    def visit(self, tree: Any) -> Any:
+        if isinstance(tree, Tree) and tree.data == "start":
+            self._prepare_static_type_elision(tree)
+            return self._execute_start_tree(tree)
+        return super().visit(tree)
+
+    def _execute_start_tree(self, tree: Tree[Any]) -> Any:
+        engine = self.execution_engine
+        strict_vm = engine in {"vm", "bytecode", "vm-strict", "bytecode-strict"}
+        try_vm = engine in {
+            "vm",
+            "bytecode",
+            "vm-strict",
+            "bytecode-strict",
+            "vm-hybrid",
+            "bytecode-hybrid",
+        }
+
+        if try_vm:
+            try:
+                program = self._bytecode_compiler.compile(tree)
+            except BytecodeUnsupported as exc:
+                if strict_vm:
+                    raise LogosError(
+                        "Bytecode VM strict mode rejected unsupported construct: "
+                        f"{exc}"
+                    ) from exc
+            else:
+                self._last_execution_backend = "vm"
+                return self._bytecode_vm.run(program)
+
+        self._last_execution_backend = "visitor"
+        return super().visit(tree)
+
+    def compile_bytecode(self, tree: Any) -> BytecodeProgram:
+        if not isinstance(tree, Tree):
+            raise LogosError("Bytecode compilation requires a parsed syntax tree.")
+        return self._bytecode_compiler.compile(tree)
+
+    def _prepare_static_type_elision(self, tree: Tree[Any]) -> None:
+        self._elided_declared_types = {}
+        if not self.enable_static_type_elision:
+            return
+
+        inferred = StaticTypeAnalyzer().analyze(tree)
+        self._elided_declared_types.update(inferred.bindings)
+        self._elided_declared_types.update(self.trusted_lsp_types)
 
     # --- Root Statements ---
 
@@ -348,6 +411,8 @@ class LogosInterpreter(Interpreter[Any, Any]):
     def _enforce_declared_type(self, name: str, value: Any) -> None:
         declared = self._lookup_declared_type(name)
         if declared:
+            if not self._type_stack and self._elided_declared_types.get(name) == declared:
+                return
             self._enforce_value_type(value, declared, context=name)
 
     def _enforce_icon_field_type(

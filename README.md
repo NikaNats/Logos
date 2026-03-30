@@ -50,6 +50,18 @@ To begin your journey with Logos, ensure you have **Python 3.12+** installed.
     ```
     Type `silence;` to execute a statement and `exit` or `depart(0);` to leave.
 
+6.  **VM / WASI (Optional):**
+    ```bash
+    # Force strict bytecode VM execution (no visitor fallback)
+    python logos.py programs/main.lg --execution-engine vm-strict
+
+    # Emit portable bytecode artifact
+    python logos.py programs/main.lg --emit-bytecode .logos/main.bytecode.json
+
+    # Dispatch bytecode into an external WASI runtime module
+    python logos.py programs/main.lg --execution-target wasi --wasi-module ./runtime/logos_vm_wasi.wasm
+    ```
+
 ---
 
 ## 📜 The Canon: Core Capabilities and Dogmas
@@ -65,9 +77,12 @@ Logos is designed with specific "canonical" principles, offering a unique set of
 *   **The Apocrypha (FFI)**: Bind foreign symbols via `apocrypha` with strict policy controls. Raw `ctypes` is treated as a legacy backend; memory-safe Rust/WASM bridges are the recommended deployment path for hardened environments.
 *   **Runtime Type Dogma**: Logos supports optional gradual typing (e.g., `inscribe x: HolyInt`). These type annotations are strictly enforced at runtime and validated by the LSP.
 *   **Tail Call Optimization (TCO)**: To prevent "Pride" (recursion depth exceeded errors), Logos implements a trampolining mechanism for tail-recursive `mystery` invocations.
+*   **Bytecode VM Transition**: Logos supports a stack-based bytecode engine (`vm-hybrid` by default) with automatic fallback to the AST visitor when a construct is not yet lowered.
+*   **Static Type Elision**: A conservative static pre-pass can skip redundant global runtime type checks when assignments are provably type-compatible, and can ingest trusted LSP facts.
 *   **The Iconostasis (Structs)**: Define custom data structures using `icon`. These icons support field validation during instantiation (`write Icon { ... }`) and mutable attributes.
 *   **LSP Support**: A custom Language Server (TypeScript runtime) provides real-time diagnostics, semantic token highlighting, and type inlay hints for compatible editors like VS Code. A Python server remains available as a legacy fallback.
 *   **Sandbox Posture**: File I/O applies real-path containment checks, and FFI can be configured to require OS-level sandbox attestation before any foreign library is loaded.
+*   **WASM-First Path**: Logos can emit bytecode artifacts suitable for execution by a WASI runtime module, enabling sandboxed non-Python hosting.
 
 ---
 
