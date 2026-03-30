@@ -31,29 +31,33 @@
 
 - Python runtime baseline: Python 3.11+.
 - Preferred local validation command set:
-	- py -3.13 -m pytest -q
-	- py -3.13 logos.py examples/smoke_test.lg
+  - py -3.13 -m pytest -q
+  - py -3.13 logos.py examples/smoke_test.lg
 - If local virtualenv interpreter is unavailable, use repository site-packages fallback:
-	- $env:PYTHONPATH = "c:/Users/Nika/Downloads/Trinity/.venv/Lib/site-packages"
-	- py -3.13 -m pytest -q
+  - $env:PYTHONPATH = "c:/Users/Nika/Downloads/Trinity/.venv/Lib/site-packages"
+  - py -3.13 -m pytest -q
 
 ## Development Workflow and Quality Gates
 
 - Specification and planning flow for non-trivial changes:
-	1. /speckit.constitution
-	2. /speckit.specify
-	3. /speckit.plan
-	4. /speckit.tasks
-	5. /speckit.implement
+  1. /speckit.constitution
+  2. /speckit.specify
+  3. /speckit.plan
+  4. /speckit.tasks
+  5. /speckit.implement
 - Required completion gates:
-	- Targeted tests for touched surfaces.
-	- Full test suite green.
-	- Smoke test green when runtime/core libs are touched.
+  - Targeted tests for touched surfaces.
+  - Full test suite green.
+  - Smoke test green when runtime/core libs are touched.
 
 ## Governance
 
 - This constitution supersedes ad-hoc development preferences for this repository.
 - Amendments require rationale, risk assessment, and updated tests/documentation if behavior changes.
+- Versioning policy for this constitution follows semantic versioning:
+	- MAJOR: backward-incompatible governance/principle redefinition or removal.
+	- MINOR: new principle/section or materially expanded guidance.
+	- PATCH: wording clarifications and alignment updates without policy shifts.
 - Pull requests must state which principle(s) were applied and how gates were satisfied.
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-03-30
+**Version**: 1.0.1 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-03-30

@@ -67,13 +67,12 @@
 
 ### Edge Cases
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
-
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- How does behavior change when input contains invalid Logos syntax near rule boundaries?
+- What happens when runtime type annotations conflict with assigned values?
+- How are FFI calls handled when FFI is disabled, library/function is not whitelisted,
+  or pointer-like types are blocked?
+- How does the system behave for recursive calls near recursion/TCO policy limits?
+- How are import cycles, missing modules, and traversal-like import paths handled?
 
 ## Requirements *(mandatory)*
 
@@ -84,11 +83,11 @@
 
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-001**: Runtime MUST preserve existing behavior for unaffected Logos programs.
+- **FR-002**: Runtime MUST emit actionable diagnostics/errors for failure scenarios.
+- **FR-003**: Security controls MUST be enforced on all affected execution paths.
+- **FR-004**: Canonical libraries and documented examples MUST remain runnable.
+- **FR-005**: Changes MUST include regression tests for touched critical surfaces.
 
 *Example of marking unclear requirements:*
 
@@ -97,8 +96,10 @@
 
 ### Key Entities *(include if feature involves data)*
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+- **Program Input**: Source liturgy text and parse tree representation.
+- **Runtime Context**: Scope frames, declared types, and call execution state.
+- **Security Context**: FFI enablement, whitelist, and unsafe pointer policy.
+- **Module Surface**: Exported values/functions and import resolution boundaries.
 
 ## Success Criteria *(mandatory)*
 
@@ -109,20 +110,14 @@
 
 ### Measurable Outcomes
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+- **SC-001**: Existing green baseline tests continue to pass after implementation.
+- **SC-002**: New/updated regression tests fail before and pass after the change.
+- **SC-003**: If runtime/core libraries are touched, smoke_test executes successfully.
+- **SC-004**: No new critical security regressions are introduced.
 
 ## Assumptions
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
-
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- Runtime remains Python-based and test execution uses pytest.
+- Feature scope is repository-local (no cloud service dependencies unless explicitly stated).
+- Existing canonical libraries (lib/) are in scope for compatibility validation when touched.
+- VS Code package changes are optional unless the feature explicitly targets LSP/editor behavior.

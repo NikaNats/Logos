@@ -1,50 +1,68 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Logos Brownfield Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Security-First Runtime Changes
+- FFI access remains deny-by-default unless explicitly enabled.
+- Pointer-like FFI behavior must require explicit opt-in and be enforced for
+	both declared and inferred type paths.
+- Any security-sensitive runtime change must include negative-path regression
+	tests.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Behavior over Refactor
+- Brownfield work preserves observable behavior unless behavior change is
+	explicitly specified and approved.
+- Keep changes minimal and scoped to the feature/problem statement.
+- Separate refactors from bug fixes when practical.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Test-Backed Delivery (Non-Negotiable)
+- Every bug fix must add or update regression tests.
+- Critical areas maintain coverage: interpreter, modules, stdlib, FFI, and LSP.
+- Work is not complete until required tests pass in the current environment.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Compatibility of Canon and Tooling
+- Canonical libraries under lib must map to real runtime builtins.
+- Documentation and examples must stay runnable.
+- CLI and VS Code/LSP tooling behavior must remain operational after changes.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Clear Diagnostics and Operability
+- Errors should be actionable and identify the failing surface.
+- New failure modes should include message-quality assertions when reasonable.
+- Validation commands should be deterministic and reproducible.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Brownfield Constraints
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- Python baseline: 3.11+.
+- Required validation commands:
+	- py -3.13 -m pytest -q
+	- py -3.13 logos.py examples/smoke_test.lg
+- Fallback when local virtualenv interpreter is unavailable:
+	- $env:PYTHONPATH = "c:/Users/Nika/Downloads/Trinity/.venv/Lib/site-packages"
+	- py -3.13 -m pytest -q
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Workflow and Quality Gates
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- Non-trivial feature flow:
+	1. /speckit.constitution
+	2. /speckit.specify
+	3. /speckit.plan
+	4. /speckit.tasks
+	5. /speckit.implement
+- Completion gates:
+	- Targeted tests for touched surfaces.
+	- Full test suite green.
+	- Smoke test green when runtime/core libraries are touched.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes ad-hoc development preferences for this repo.
+- Amendments require rationale, risk assessment, and updated tests/docs for
+	behavioral changes.
+- Semantic versioning policy:
+	- MAJOR: backward-incompatible governance or principle removals/redefinitions.
+	- MINOR: new principle/section or materially expanded guidance.
+	- PATCH: clarifications and wording improvements without policy changes.
+- Pull requests must declare which principles were applied and which gates were
+	satisfied.
 
 **Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->

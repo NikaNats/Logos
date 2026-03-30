@@ -11,27 +11,27 @@
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+Use these project defaults and override only when the feature requires it.
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Language/Version**: Python 3.12 host runtime + Logos DSL grammar (Lark)  
+**Primary Dependencies**: lark, ctypes, pygls (LSP), pytest  
+**Storage**: Repository files (lib/, programs/, examples/, tests/fixtures/); no DB by default  
+**Testing**: pytest (unit + integration + security + stress/fuzz subsets)  
+**Target Platform**: Windows/Linux/macOS runtime + VS Code extension host  
+**Project Type**: Language runtime + canonical stdlib + editor tooling  
+**Performance Goals**: Preserve current recursion/TCO behavior and test runtime envelope  
+**Constraints**: Security-first FFI defaults, minimal diffs, backward compatibility for canonical libraries  
+**Scale/Scope**: Single repository with Python runtime core and TypeScript/Python VS Code package
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] Security-first runtime controls remain deny-by-default where required.
+- [ ] Behavior changes are explicit and justified (no accidental regressions).
+- [ ] Regression tests are specified for touched critical paths.
+- [ ] Canonical libraries and documentation examples remain runnable.
+- [ ] Validation commands are defined (targeted tests + full suite + smoke test when applicable).
 
 ## Project Structure
 
@@ -48,51 +48,23 @@ specs/[###-feature]/
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
-
+logos.py
+logos_lang/
+lib/
+examples/
+programs/
 tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+packages/
+└── logos-vscode/
+    ├── src/
+    └── server/
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Use the existing monorepo layout. Keep runtime changes
+in logos_lang/, canonical library changes in lib/, and tooling changes under
+packages/logos-vscode/.
 
 ## Complexity Tracking
 
