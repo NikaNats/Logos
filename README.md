@@ -241,6 +241,8 @@ The suite covers grammar, runtime internals (`logos_lang`), security sandboxing,
 
 For advanced conformance and adversarial testing domains, see [TESTING_ARCHITECTURE.md](TESTING_ARCHITECTURE.md).
 
+For the formal language definition (grammar, typing, and execution model), see [FORMAL_LANGUAGE_SPEC.md](FORMAL_LANGUAGE_SPEC.md).
+
 ---
 
 ## 🏛️ Directory Layout: The Grand Design
