@@ -62,11 +62,12 @@ Logos is designed with specific "canonical" principles, offering a unique set of
     *   `icon`: Data structure (struct/object) definition
     *   `proclaim`: Output to console (print)
     *   `offer`: Return value
-*   **The Apocrypha (FFI)**: Seamlessly bind and call functions from native C libraries (shared objects on Unix-like systems, DLLs on Windows) using the `apocrypha` keyword.
+*   **The Apocrypha (FFI)**: Bind foreign symbols via `apocrypha` with strict policy controls. Raw `ctypes` is treated as a legacy backend; memory-safe Rust/WASM bridges are the recommended deployment path for hardened environments.
 *   **Runtime Type Dogma**: Logos supports optional gradual typing (e.g., `inscribe x: HolyInt`). These type annotations are strictly enforced at runtime and validated by the LSP.
 *   **Tail Call Optimization (TCO)**: To prevent "Pride" (recursion depth exceeded errors), Logos implements a trampolining mechanism for tail-recursive `mystery` invocations.
 *   **The Iconostasis (Structs)**: Define custom data structures using `icon`. These icons support field validation during instantiation (`write Icon { ... }`) and mutable attributes.
 *   **LSP Support**: A custom Language Server (TypeScript runtime) provides real-time diagnostics, semantic token highlighting, and type inlay hints for compatible editors like VS Code. A Python server remains available as a legacy fallback.
+*   **Sandbox Posture**: File I/O applies real-path containment checks, and FFI can be configured to require OS-level sandbox attestation before any foreign library is loaded.
 
 ---
 
@@ -151,6 +152,20 @@ apocrypha "msvcrt" mystery cos(x: HolyFloat) -> HolyFloat;
 inscribe pi = 3.14159;
 proclaim cos(pi); // Output: ~ -1.0
 ```
+
+### Hardened Apocrypha Execution
+
+For untrusted liturgies, keep FFI disabled (default strict mode). If FFI is required, prefer explicit signatures and enable OS-sandbox attestation gates:
+
+```bash
+python logos.py script.lg \
+    --unsafe-ffi \
+    --ffi-backend ctypes \
+    --require-os-sandbox-for-ffi \
+    --sandbox-attestation-env LOGOS_OS_SANDBOX
+```
+
+Then set `LOGOS_OS_SANDBOX` from your launcher/container only when seccomp/eBPF/AppContainer (or equivalent OS isolation) is active.
 
 ---
 

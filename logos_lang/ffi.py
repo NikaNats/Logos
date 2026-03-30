@@ -8,9 +8,50 @@ from .models import ForeignFunction, SecurityContext
 
 
 class FFIManager:
+    _SANDBOX_ATTESTED_VALUES = {
+        "1",
+        "true",
+        "yes",
+        "seccomp",
+        "ebpf",
+        "landlock",
+        "pledge",
+        "appcontainer",
+        "jobobject",
+        "sandbox-exec",
+    }
+
     def __init__(self, security: SecurityContext):
         self.security = security
         self.libs: Dict[str, ctypes.CDLL] = {}
+        self._denylisted_symbols_lower = {
+            name.lower() for name in self.security.denylisted_ffi_symbols
+        }
+
+    def _ensure_ffi_runtime_policy(self) -> None:
+        if self.security.ffi_backend != "ctypes":
+            raise SecurityError(
+                "Security Violation: Raw ctypes FFI is disabled for this backend policy. "
+                "Use a memory-safe Rust/WASM bridge for Apocrypha in hardened mode."
+            )
+
+        if self.security.require_os_sandbox_for_ffi and not self._is_os_sandbox_attested():
+            raise SecurityError(
+                "Security Violation: FFI requires OS-level sandbox attestation "
+                f"via {self.security.sandbox_attestation_env}."
+            )
+
+    def _is_os_sandbox_attested(self) -> bool:
+        raw = os.environ.get(self.security.sandbox_attestation_env, "")
+        return raw.strip().lower() in self._SANDBOX_ATTESTED_VALUES
+
+    @staticmethod
+    def _reject_path_like_library_names(lib_name: str) -> None:
+        if any(sep in lib_name for sep in ("/", "\\")) or ":" in lib_name:
+            raise SecurityError(
+                "Security Violation: Path-like Apocrypha library names are forbidden. "
+                "Only logical library identifiers are permitted."
+            )
 
     def _ensure_pointer_policy(self, c_type: Any) -> None:
         if c_type == ctypes.c_char_p and not self.security.allow_unsafe_pointers:
@@ -48,6 +89,9 @@ class FFIManager:
         if not self.security.allow_ffi:
             raise SecurityError("Apocrypha (FFI) is disabled by system dogma.")
 
+        self._ensure_ffi_runtime_policy()
+        self._reject_path_like_library_names(lib_name)
+
         clean = self._clean_lib_name(lib_name)
         if lib_name not in self.security.whitelist and clean not in self.security.whitelist:
             raise SecurityError(f"Security Violation: Library '{lib_name}' is not permitted.")
@@ -72,6 +116,11 @@ class FFIManager:
     def bind_function(
         self, lib_name: str, func_name: str, arg_types: List[str], ret_type: str
     ) -> ForeignFunction:
+        if func_name.lower() in self._denylisted_symbols_lower:
+            raise SecurityError(
+                f"Security Violation: Function '{func_name}' is denylisted for safety compliance."
+            )
+
         clean = self._clean_lib_name(lib_name)
         allowed_funcs = (
             self.security.whitelist.get(lib_name) or self.security.whitelist.get(clean) or set()

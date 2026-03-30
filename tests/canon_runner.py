@@ -70,9 +70,12 @@ def _execute_fixture(
     return _ExecResult(stdout=buf.getvalue(), error=err)
 
 
-def _permissive_security(allow_pointers: bool = False) -> logos_lang.SecurityContext:
+def _permissive_security(
+    allow_pointers: bool = False, allow_inferred_signatures: bool = False
+) -> logos_lang.SecurityContext:
     sec = logos_lang.SecurityContext.permissive()
     sec.allow_unsafe_pointers = allow_pointers
+    sec.allow_inferred_ffi_signatures = allow_inferred_signatures
     return sec
 
 
@@ -167,7 +170,7 @@ class CanonTests(unittest.TestCase):
     def test_ffi_infer_argtypes(self) -> None:
         r = _execute_fixture(
             "ffi_infer_argtypes_windows.lg",
-            security=_permissive_security(allow_pointers=True),
+            security=_permissive_security(allow_pointers=True, allow_inferred_signatures=True),
         )
         self.assertIsNone(r.error)
 

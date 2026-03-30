@@ -89,6 +89,27 @@ def main():
         action="store_true",
         help="Allow pointer-like FFI types such as Text/String",
     )
+    parser.add_argument(
+        "--ffi-backend",
+        choices=["ctypes", "rust", "wasm"],
+        default="ctypes",
+        help="Select Apocrypha backend policy. Non-ctypes backends require external bridge integration.",
+    )
+    parser.add_argument(
+        "--allow-inferred-ffi-signatures",
+        action="store_true",
+        help="Allow runtime inference of Apocrypha arg types when no signature is declared.",
+    )
+    parser.add_argument(
+        "--require-os-sandbox-for-ffi",
+        action="store_true",
+        help="Require OS-level sandbox attestation before any Apocrypha library can load.",
+    )
+    parser.add_argument(
+        "--sandbox-attestation-env",
+        default="LOGOS_OS_SANDBOX",
+        help="Environment variable used to attest OS-level sandboxing when required.",
+    )
     args = parser.parse_args()
 
     security = SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
@@ -103,6 +124,11 @@ def main():
 
     if args.allow_unsafe_pointers:
         security.allow_unsafe_pointers = True
+
+    security.ffi_backend = args.ffi_backend
+    security.allow_inferred_ffi_signatures = args.allow_inferred_ffi_signatures
+    security.require_os_sandbox_for_ffi = args.require_os_sandbox_for_ffi
+    security.sandbox_attestation_env = args.sandbox_attestation_env
 
     interpreter = LogosInterpreter(security=security, io_handler=ConsoleIO())
 

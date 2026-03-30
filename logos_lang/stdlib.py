@@ -43,13 +43,14 @@ class StdLib:
 
     def _open(self, path: str, mode: Union[int, str]) -> int:
         try:
-            base = os.path.abspath(self.base_path)
+            base = os.path.realpath(os.path.abspath(self.base_path))
             abs_path = os.path.abspath(os.path.join(base, str(path)))
-            if os.path.commonpath([base, abs_path]) != base:
+            resolved = os.path.realpath(abs_path)
+            if os.path.commonpath([base, resolved]) != base:
                 raise LogosError("Path traversal blocked")
             mode_str = {0: "r", 1: "w", 2: "a"}.get(int(mode), "r")
             fd = self._next_fd
-            self._fds[fd] = open(abs_path, mode_str, encoding="utf-8")
+            self._fds[fd] = open(resolved, mode_str, encoding="utf-8")
             self._next_fd += 1
             return fd
         except Exception:

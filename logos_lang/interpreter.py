@@ -256,6 +256,11 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 f"Invocation Error: Foreign function expects {len(func.argtypes)} args."
             )
         if not func.argtypes and args:
+            if not self.security.allow_inferred_ffi_signatures:
+                raise LogosError(
+                    "Security Violation: Inferred Apocrypha signatures are disabled. "
+                    "Declare explicit parameter types or enable inferred signatures explicitly."
+                )
             inferred_argtypes = [self.ffi.infer_ctype_from_value(a) for a in args]
             func.func.argtypes = inferred_argtypes
             inferred_def = ForeignFunction(func.func, func.restype, inferred_argtypes)
