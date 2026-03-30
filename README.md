@@ -245,6 +245,8 @@ For the formal language definition (grammar, typing, and execution model), see [
 
 For the bundled standard-library contracts and builtin mysteries, see [CANON_API_REFERENCE.md](CANON_API_REFERENCE.md).
 
+For idiomatic control flow, safe Apocrypha usage, and multi-file tradition architecture, see [PILGRIMS_PATH.md](PILGRIMS_PATH.md).
+
 ---
 
 ## 🏛️ Directory Layout: The Grand Design
