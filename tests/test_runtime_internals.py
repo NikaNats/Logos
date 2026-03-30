@@ -197,6 +197,9 @@ class RuntimeInternalsTests(unittest.TestCase):
             scope.get("__sys_close")(fd)
             self.assertEqual(scope.get("measure")([1, 2]), 2)
 
+            xs = [1]
+            self.assertEqual(scope.get("adorn")(xs, 2), [1, 2])
+
     def test_stdlib_open_blocks_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as outside:
             outside_file = os.path.join(outside, "secret.txt")

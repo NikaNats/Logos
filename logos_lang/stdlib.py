@@ -36,6 +36,7 @@ class StdLib:
         scope.register_builtin("passage", self._passage)
         scope.register_builtin("measure", self._measure)
         scope.register_builtin("append", self._append)
+        scope.register_builtin("adorn", self._append)
         scope.register_builtin("extract", self._extract)
         scope.register_builtin("purge", self._purge)
         scope.register_builtin("__sys_str", str)

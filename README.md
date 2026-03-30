@@ -243,6 +243,8 @@ For advanced conformance and adversarial testing domains, see [TESTING_ARCHITECT
 
 For the formal language definition (grammar, typing, and execution model), see [FORMAL_LANGUAGE_SPEC.md](FORMAL_LANGUAGE_SPEC.md).
 
+For the bundled standard-library contracts and builtin mysteries, see [CANON_API_REFERENCE.md](CANON_API_REFERENCE.md).
+
 ---
 
 ## 🏛️ Directory Layout: The Grand Design
