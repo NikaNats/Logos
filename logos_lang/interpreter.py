@@ -7,7 +7,7 @@ from lark import Tree
 from lark.visitors import Interpreter
 
 from .bytecode import BytecodeCompiler, BytecodeProgram, BytecodeUnsupported, BytecodeVM
-from .exceptions import LogosError
+from .exceptions import LogosError, SecurityError
 from .ffi import FFIManager
 from .interfaces import ConsoleIO, IOHandler, _resolve_print
 from .models import (
@@ -75,7 +75,14 @@ class LogosInterpreter(Interpreter[Any, Any]):
     def visit(self, tree: Any) -> Any:
         if isinstance(tree, Tree) and tree.data == "start":
             self._prepare_static_type_elision(tree)
-            return self._execute_start_tree(tree)
+            try:
+                return self._execute_start_tree(tree)
+            except (LogosError, SecurityError):
+                raise
+            except Exception as exc:
+                raise LogosError(
+                    f"Anathema: Unhandled host exception was trapped: {type(exc).__name__}: {exc}"
+                ) from exc
         return super().visit(tree)
 
     def _execute_start_tree(self, tree: Tree[Any]) -> Any:

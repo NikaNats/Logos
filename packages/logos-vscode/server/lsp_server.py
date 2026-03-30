@@ -19,6 +19,7 @@ try:
         TEXT_DOCUMENT_DID_OPEN,
         Diagnostic,
         DiagnosticSeverity,
+        PublishDiagnosticsParams,
         Position,
         Range,
     )
@@ -82,6 +83,38 @@ def _make_diag(line0: int, col0: int, msg: str) -> Diagnostic:
         severity=DiagnosticSeverity.Error,
         source="LOGOS Diakrisis",
     )
+
+
+def _publish_diags(ls: LanguageServer, uri: str, diagnostics: list[Diagnostic]) -> None:
+    publish_direct = getattr(ls, "publish_diagnostics", None)
+    if callable(publish_direct):
+        publish_direct(uri, diagnostics)
+        return
+
+    publish_text_document = getattr(ls, "text_document_publish_diagnostics", None)
+    if callable(publish_text_document):
+        publish_text_document(PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))
+        return
+
+    protocol = getattr(ls, "protocol", None)
+    if protocol is None:
+        return
+
+    notifier = getattr(protocol, "notify", None) or getattr(protocol, "send_notification", None)
+    if not callable(notifier):
+        return
+
+    params = PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
+    try:
+        notifier("textDocument/publishDiagnostics", params)
+    except Exception:
+        notifier(
+            "textDocument/publishDiagnostics",
+            {
+                "uri": uri,
+                "diagnostics": diagnostics,
+            },
+        )
 
 
 def _infer_literal_type(expr: object) -> str | None:
@@ -359,15 +392,39 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
 
 
 def validate(ls: LanguageServer, uri: str) -> None:
-    doc = ls.workspace.get_document(uri)
+    workspace = ls.workspace
+    doc = None
+
+    get_document = getattr(workspace, "get_document", None)
+    if callable(get_document):
+        doc = get_document(uri)
+
+    if doc is None:
+        get_text_document = getattr(workspace, "get_text_document", None)
+        if callable(get_text_document):
+            doc = get_text_document(uri)
+
+    if doc is None:
+        text_documents = getattr(workspace, "text_documents", None)
+        if isinstance(text_documents, dict):
+            doc = text_documents.get(uri)
+
+    if doc is None:
+        _publish_diags(ls, uri, [_make_diag(0, 0, f"No text document found for {uri}")])
+        return
+
+    source = getattr(doc, "source", None)
+    if source is None:
+        source = getattr(doc, "text", "")
+
     try:
-        tree = get_parser().parse(doc.source)
+        tree = get_parser().parse(source)
         diags = _typecheck(tree)
     except Exception as e:
         line = getattr(e, "line", 1) - 1
         col = getattr(e, "column", 1) - 1
         diags = [_make_diag(line, col, str(e).split("\n")[0])]
-    ls.publish_diagnostics(uri, diags)
+    _publish_diags(ls, uri, diags)
 
 
 @SERVER.feature(TEXT_DOCUMENT_DID_OPEN)

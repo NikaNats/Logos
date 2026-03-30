@@ -226,18 +226,20 @@ Logos maintains a robust test suite to ensure the integrity of its "Canon."
 To run all tests:
 
 ```bash
-python -m unittest discover tests
+uv run pytest
 ```
 
 To include coverage reports:
 
 ```bash
-pip install coverage
-coverage run -m unittest discover tests
+uv sync --group dev
+uv run coverage run -m pytest
 coverage report -m
 ```
 
-The suite covers grammar, runtime internals (`logos_lang`), security sandboxing, and LSP protocol integrity.
+The suite covers grammar, runtime internals (`logos_lang`), security sandboxing, fuzzing, FFI resilience, and LSP protocol integrity.
+
+For advanced conformance and adversarial testing domains, see [TESTING_ARCHITECTURE.md](TESTING_ARCHITECTURE.md).
 
 ---
 
