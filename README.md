@@ -66,7 +66,7 @@ Logos is designed with specific "canonical" principles, offering a unique set of
 *   **Runtime Type Dogma**: Logos supports optional gradual typing (e.g., `inscribe x: HolyInt`). These type annotations are strictly enforced at runtime and validated by the LSP.
 *   **Tail Call Optimization (TCO)**: To prevent "Pride" (recursion depth exceeded errors), Logos implements a trampolining mechanism for tail-recursive `mystery` invocations.
 *   **The Iconostasis (Structs)**: Define custom data structures using `icon`. These icons support field validation during instantiation (`write Icon { ... }`) and mutable attributes.
-*   **LSP Support**: A custom Language Server, powered by Python's `pygls` library, provides real-time diagnostics, syntax validation, and semantic highlighting for compatible editors like VS Code.
+*   **LSP Support**: A custom Language Server (TypeScript runtime) provides real-time diagnostics, semantic token highlighting, and type inlay hints for compatible editors like VS Code. A Python server remains available as a legacy fallback.
 
 ---
 
@@ -156,7 +156,7 @@ proclaim cos(pi); // Output: ~ -1.0
 
 ## 🛠️ Tooling: The Iconostasis (VS Code Extension)
 
-The Logos VS Code extension resides in `packages/logos-vscode` and provides syntax highlighting and LSP diagnostics.
+The Logos VS Code extension resides in `packages/logos-vscode` and provides syntax highlighting, semantic tokens, inlay hints, and LSP diagnostics.
 
 ### Installation & Development
 
@@ -168,17 +168,17 @@ The Logos VS Code extension resides in `packages/logos-vscode` and provides synt
     ```bash
     npm install
     ```
-3.  **Language Server Dependencies:**
-    From repository root, install LSP extras:
+3.  **Build the TypeScript Language Server:**
+    Compile the extension client + server:
     ```bash
-    uv sync --group dev --extra lsp
+    npm run compile
     ```
 4.  **Launch Extension Development Host:**
     In VS Code, press `F5` to open a window with the extension loaded.
 
-### Bundled Server (Recommended for Distribution)
+### Bundled Server (Optional Legacy Fallback)
 
-The extension can ship with a bundled native executable of the Language Server (built with PyInstaller), eliminating the Python requirement for end-users.
+The extension can also ship with a bundled native executable of the legacy Python Language Server (built with PyInstaller).
 
 *   **Building the Windows Server Binary:**
     ```powershell
@@ -234,8 +234,8 @@ nikanats-logos/
 ├── programs/                # Complex, multi-file programs (e.g., monk.lg, creed.lg).
 ├── packages/                # Editor integrations:
 │   ├── logos-vscode/        # The primary VS Code extension.
-│   │   ├── server/          # Python-based LSP implementation.
-│   │   ├── src/             # TypeScript client.
+│   │   ├── src/             # TypeScript client + TypeScript LSP server.
+│   │   ├── server/          # Legacy Python LSP implementation.
 │   │   └── syntaxes/        # TextMate grammar.
 │   └── logos-liturgy/       # (Legacy) Alternative client structure.
 └── tests/                   # The Inquisitor (Test Suite):
@@ -258,7 +258,7 @@ graph TD
     subgraph Stage1 ["🟦 Phase 1: Creation"]
         direction LR
         Editor("📝 <b>VS Code</b><br/>(Client)")
-        LSP("💡 <b>Logos Server</b><br/>(LSP/pygls)")
+        LSP("💡 <b>Logos Server</b><br/>(LSP/TypeScript)")
     end
 
     subgraph Stage2 ["🟪 Phase 2: Execution"]

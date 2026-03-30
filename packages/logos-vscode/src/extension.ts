@@ -5,6 +5,7 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
+  TransportKind,
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
@@ -30,19 +31,38 @@ export function activate(context: ExtensionContext) {
 }
 
 function resolveServerOptions(context: ExtensionContext): ServerOptions {
-  // Option A (professional): prefer a bundled native executable.
-  // This avoids requiring users to have Python and dependencies installed.
+  const nodeModule = context.asAbsolutePath(path.join('dist', 'server.js'));
+  if (fs.existsSync(nodeModule)) {
+    return {
+      run: {
+        module: nodeModule,
+        transport: TransportKind.ipc,
+      },
+      debug: {
+        module: nodeModule,
+        transport: TransportKind.ipc,
+        options: {
+          execArgv: ['--nolazy', '--inspect=6010'],
+        },
+      },
+    };
+  }
+
+  // Legacy fallback: bundled native executable.
   const bundledExe = resolveBundledServerExecutable(context);
   if (bundledExe) {
+    window.showWarningMessage(
+      'Logos: TypeScript language server not found in dist/. Falling back to bundled native server.'
+    );
     return { command: bundledExe, args: [] };
   }
 
-  // Dev / fallback: run the Python server.
+  // Last-resort fallback: Python server.
   const serverPath = context.asAbsolutePath(path.join('server', 'lsp_server.py'));
   const pythonCommand = resolvePythonCommand();
 
   window.showWarningMessage(
-    'Logos: Using Python language server. If it fails to start, run "uv sync --extra lsp" from the repository root, or ship a bundled server binary.'
+    'Logos: TypeScript language server not found in dist/. Falling back to Python server. Run "npm run compile" in packages/logos-vscode to build the TypeScript server.'
   );
 
   return {
