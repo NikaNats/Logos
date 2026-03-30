@@ -4,6 +4,7 @@ import importlib.util
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+
 from lark import Lark
 
 # Import grammar from library for test validation
@@ -65,17 +66,17 @@ class LspTests(unittest.TestCase):
         self.assertTrue(any("call 'id'" in d.message for d in diags))
 
     def test_lsp_reports_return_type_mismatch_on_assignment(self) -> None:
-        src = (
-            ROOT / "tests" / "fixtures" / "lsp_fail_return_type_assignment.lg"
-        ).read_text(encoding="utf-8")
+        src = (ROOT / "tests" / "fixtures" / "lsp_fail_return_type_assignment.lg").read_text(
+            encoding="utf-8"
+        )
         tree = self.parser.parse(src)
         diags = self.lsp._typecheck(tree)
         self.assertTrue(any("declared Text" in d.message for d in diags))
 
     def test_lsp_warns_on_unreachable_code_after_offer(self) -> None:
-        src = (
-            ROOT / "tests" / "fixtures" / "lsp_unreachable_after_offer.lg"
-        ).read_text(encoding="utf-8")
+        src = (ROOT / "tests" / "fixtures" / "lsp_unreachable_after_offer.lg").read_text(
+            encoding="utf-8"
+        )
         tree = self.parser.parse(src)
         diags = self.lsp._typecheck(tree)
         self.assertTrue(any("Unreachable code" in d.message for d in diags))

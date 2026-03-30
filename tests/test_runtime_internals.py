@@ -1,11 +1,11 @@
 from __future__ import annotations
+
+import ctypes
 import io
 import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
-import ctypes
 
 from lark import Lark
 
@@ -84,9 +84,7 @@ class RuntimeInternalsTests(unittest.TestCase):
             return len(args)
 
         dummy.argtypes = []
-        foreign = logos_lang.ForeignFunction(
-            func=dummy, restype=ctypes.c_double, argtypes=[]
-        )
+        foreign = logos_lang.ForeignFunction(func=dummy, restype=ctypes.c_double, argtypes=[])
 
         with self.assertRaises(logos_lang.SecurityError):
             interp._invoke_foreign_function(foreign, ["x"])
@@ -127,9 +125,7 @@ class RuntimeInternalsTests(unittest.TestCase):
             self.assertEqual(scope.get("measure")([1, 2]), 2)
 
     def test_chant_runs_at_least_once(self) -> None:
-        _, out = self._run_program(
-            "inscribe x=0; chant x<3 { amend x=x+1; } amen proclaim x;"
-        )
+        _, out = self._run_program("inscribe x=0; chant x<3 { amend x=x+1; } amen proclaim x;")
         self.assertIn("3", out)
 
     def test_mystery_def_invalid_name_raises(self) -> None:

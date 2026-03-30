@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-from typing import Any, Dict, List, TextIO, Union, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any, Dict, Union
 
 from .exceptions import LogosError
 
@@ -10,14 +10,18 @@ if TYPE_CHECKING:
 
 
 class StdLib:
-    def __init__(self, base_path: str):
+    def __init__(self, base_path: str) -> None:
         self.base_path = base_path
-        self._fds: Dict[int, TextIO] = {}
+        self._fds: Dict[int, IO[str]] = {}
         self._next_fd = 3
 
-    def register_into(self, scope: "ScopeManager"):
-        now_fn = lambda: int(time.time() * 1000)
-        env_fn = lambda k: os.environ.get(str(k), "")
+    def register_into(self, scope: "ScopeManager") -> None:
+        def now_fn() -> int:
+            return int(time.time() * 1000)
+
+        def env_fn(key: Any) -> str:
+            return os.environ.get(str(key), "")
+
         scope.register_builtin("now", now_fn)
         scope.register_builtin("env", env_fn)
         # Backward-compatible aliases used by canonical .lg modules.
@@ -51,12 +55,12 @@ class StdLib:
         except Exception:
             return 0
 
-    def _close(self, fd: int):
+    def _close(self, fd: int) -> None:
         f = self._fds.pop(int(fd), None)
         if f:
             f.close()
 
-    def _write(self, fd: int, content: str):
+    def _write(self, fd: int, content: str) -> bool:
         f = self._fds.get(int(fd))
         if f:
             f.write(str(content))
@@ -64,7 +68,7 @@ class StdLib:
             return True
         return False
 
-    def _read(self, fd: int, length: int):
+    def _read(self, fd: int, length: int) -> str:
         f = self._fds.get(int(fd))
         if not f:
             return ""
@@ -86,16 +90,14 @@ class StdLib:
         return len(x) if hasattr(x, "__len__") else 0
 
     @staticmethod
-    def _append(lst: List, item: Any):
-        if isinstance(lst, list):
-            lst.append(item)
+    def _append[T](lst: list[T], item: T) -> list[T]:
+        lst.append(item)
         return lst
 
     @staticmethod
-    def _extract(lst: List):
-        return lst.pop() if isinstance(lst, list) and lst else None
+    def _extract[T](lst: list[T]) -> T | None:
+        return lst.pop() if lst else None
 
     @staticmethod
-    def _purge(lst: List):
-        if isinstance(lst, list):
-            lst.clear()
+    def _purge[T](lst: list[T]) -> None:
+        lst.clear()

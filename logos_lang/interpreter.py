@@ -6,24 +6,23 @@ from typing import Any, Dict, List, Optional
 from lark.visitors import Interpreter
 
 from .exceptions import LogosError
-from .grammar import LOGOS_GRAMMAR
+from .ffi import FFIManager
+from .interfaces import ConsoleIO, IOHandler, _resolve_print
 from .models import (
-    SecurityContext,
-    ReturnValue,
-    TailCall,
-    UserFunction,
     ForeignFunction,
     ModuleFunction,
+    ReturnValue,
+    SecurityContext,
+    TailCall,
+    UserFunction,
 )
-from .interfaces import IOHandler, ConsoleIO, _resolve_print
-from .scope import ScopeManager
-from .ffi import FFIManager
-from .stdlib import StdLib
 from .modules import ModuleManager
+from .scope import ScopeManager
+from .stdlib import StdLib
 from .types import TypeCanon
 
 
-class LogosInterpreter(Interpreter):
+class LogosInterpreter(Interpreter[Any, Any]):
     def __init__(
         self,
         base_path: Optional[str] = None,
@@ -51,9 +50,7 @@ class LogosInterpreter(Interpreter):
         self._icons: Dict[str, Dict[str, str]] = {}
 
         try:
-            sys.setrecursionlimit(
-                max(sys.getrecursionlimit(), self._max_recursion + 200)
-            )
+            sys.setrecursionlimit(max(sys.getrecursionlimit(), self._max_recursion + 200))
         except Exception:
             pass
 
@@ -62,7 +59,7 @@ class LogosInterpreter(Interpreter):
 
     # --- Root Statements ---
 
-    def proclaim(self, tree):
+    def proclaim(self, tree: Any) -> None:
         val = self.visit(tree.children[0])
         prefix = "Verily" if val is True else "Nay" if val is False else str(val)
         self._emit("☩", prefix)
@@ -76,7 +73,7 @@ class LogosInterpreter(Interpreter):
             except Exception:
                 pass
 
-    def inscribe(self, tree):
+    def inscribe(self, tree: Any) -> Any:
         name = str(tree.children[0])
         declared_type = str(tree.children[1]) if len(tree.children) == 3 else None
         expr_idx = 2 if declared_type is not None else 1
@@ -87,17 +84,17 @@ class LogosInterpreter(Interpreter):
         self.scope.declare(name, val)
         return val
 
-    def amend(self, tree):
+    def amend(self, tree: Any) -> None:
         target_node, value_node = tree.children
         value = self.visit(value_node)
         self._perform_mutation(target_node, value)
 
-    def expr_stmt(self, tree):
+    def expr_stmt(self, tree: Any) -> Any:
         return self.visit(tree.children[0])
 
     # --- Flow Control ---
 
-    def block(self, tree):
+    def block(self, tree: Any) -> Any:
         result = None
         for stmt in tree.children:
             result = self.visit(stmt)
@@ -105,19 +102,19 @@ class LogosInterpreter(Interpreter):
                 return result
         return result
 
-    def discernment(self, tree):
+    def discernment(self, tree: Any) -> Any:
         if self.visit(tree.children[0]):
             return self.visit(tree.children[1])
         return self.visit(tree.children[2])
 
-    def chant(self, tree):
+    def chant(self, tree: Any) -> Any:
         condition, body = tree.children
         while self.visit(condition):
             result = self.visit(body)
             if isinstance(result, ReturnValue):
                 return result
 
-    def vigil(self, tree):
+    def vigil(self, tree: Any) -> Any:
         try_blk, err_var, catch_blk = tree.children
         try:
             return self.visit(try_blk)
@@ -125,7 +122,7 @@ class LogosInterpreter(Interpreter):
             self.scope.set(str(err_var), str(e))
             return self.visit(catch_blk)
 
-    def offer(self, tree):
+    def offer(self, tree: Any) -> ReturnValue:
         expr = tree.children[0]
         if getattr(expr, "data", None) == "call":
             func_name = str(expr.children[0])
@@ -136,20 +133,16 @@ class LogosInterpreter(Interpreter):
                 return ReturnValue(TailCall(spirit, args))
         return ReturnValue(self.visit(expr))
 
-    def silence(self, tree):
+    def silence(self, tree: Any) -> None:
         return None
 
     # --- Functions & Traditions ---
 
-    def tradition(self, tree):
+    def tradition(self, tree: Any) -> Dict[str, Any]:
         rel_path = str(tree.children[0])[1:-1]
         alias = str(tree.children[1]) if len(tree.children) > 1 else None
-        requestor = getattr(
-            self, "_current_file", os.path.join(self.base_path, "__main__.lg")
-        )
-        module = self.module_manager.load_module(
-            requestor_path=requestor, rel_path=rel_path
-        )
+        requestor = getattr(self, "_current_file", os.path.join(self.base_path, "__main__.lg"))
+        module = self.module_manager.load_module(requestor_path=requestor, rel_path=rel_path)
 
         for name, type_name in module.types.items():
             self._declare_type(name, type_name)
@@ -168,48 +161,36 @@ class LogosInterpreter(Interpreter):
             self.scope.set(name, value)
         return module.exports
 
-    def mystery_def(self, tree):
+    def mystery_def(self, tree: Any) -> None:
         name = str(tree.children[0])
         if not self._re_func.fullmatch(name):
             raise LogosError(f"Canon Error: Mystery name '{name}' must be snake_case.")
         idx = 1
         params = []
-        if (
-            idx < len(tree.children)
-            and getattr(tree.children[idx], "data", "") == "params"
-        ):
+        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
             params = [str(p.children[0]) for p in tree.children[idx].children]
             idx += 1
-        if (
-            idx < len(tree.children)
-            and getattr(tree.children[idx], "type", "") == "NAME"
-        ):
+        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
             idx += 1
         body = tree.children[idx]
         self.scope.register_builtin(name, UserFunction(name, params, body))
 
-    def apocrypha(self, tree):
+    def apocrypha(self, tree: Any) -> None:
         lib_str = str(tree.children[0])[1:-1]
         func_name = str(tree.children[1])
         idx = 2
         arg_types = []
-        if (
-            idx < len(tree.children)
-            and getattr(tree.children[idx], "data", "") == "params"
-        ):
+        if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
             for p in tree.children[idx].children:
                 arg_types.append(str(p.children[1]) if len(p.children) > 1 else "Float")
             idx += 1
         ret_type = "Float"
-        if (
-            idx < len(tree.children)
-            and getattr(tree.children[idx], "type", "") == "NAME"
-        ):
+        if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
             ret_type = str(tree.children[idx])
         func_def = self.ffi.bind_function(lib_str, func_name, arg_types, ret_type)
         self.scope.register_builtin(func_name, func_def)
 
-    def call(self, tree):
+    def call(self, tree: Any) -> Any:
         func_name = str(tree.children[0])
         args_node = tree.children[1] if len(tree.children) > 1 else None
         args = [self.visit(c) for c in args_node.children] if args_node else []
@@ -241,12 +222,10 @@ class LogosInterpreter(Interpreter):
         finally:
             self._recursion_depth -= 1
 
-    def _invoke_user_function(self, func: UserFunction, args: List[Any]):
+    def _invoke_user_function(self, func: UserFunction, args: List[Any]) -> Any:
         current_func, current_args = func, args
         tail_hops = 0
-        tail_limit = max(
-            int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100
-        )
+        tail_limit = max(int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100)
         while True:
             if len(current_args) != len(current_func.params):
                 raise LogosError(
@@ -271,7 +250,7 @@ class LogosInterpreter(Interpreter):
                 self._type_stack.pop()
                 self.scope.pop_frame()
 
-    def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]):
+    def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]) -> Any:
         if func.argtypes and len(args) != len(func.argtypes):
             raise LogosError(
                 f"Invocation Error: Foreign function expects {len(func.argtypes)} args."
@@ -287,7 +266,7 @@ class LogosInterpreter(Interpreter):
 
     # --- Structures (Icons) ---
 
-    def icon_def(self, tree):
+    def icon_def(self, tree: Any) -> None:
         name = str(tree.children[0])
         if not self._re_icon.fullmatch(name):
             raise LogosError(f"Canon Error: Icon name '{name}' must be Capitalized.")
@@ -297,7 +276,7 @@ class LogosInterpreter(Interpreter):
                 fields[str(decl.children[0])] = str(decl.children[1])
         self._icons[name] = fields
 
-    def write_icon(self, tree):
+    def write_icon(self, tree: Any) -> Dict[str, Any]:
         name = str(tree.children[0])
         assigns = self.visit(tree.children[1]) if len(tree.children) > 1 else []
         obj = {"__icon__": name}
@@ -312,15 +291,15 @@ class LogosInterpreter(Interpreter):
         obj.update(values)
         return obj
 
-    def assign_list(self, tree):
+    def assign_list(self, tree: Any) -> List[tuple[str, Any]]:
         return [self.visit(c) for c in tree.children]
 
-    def assign(self, tree):
+    def assign(self, tree: Any) -> tuple[str, Any]:
         return (str(tree.children[0]), self.visit(tree.children[1]))
 
     # --- Data Access & Mutation ---
 
-    def _perform_mutation(self, node, value):
+    def _perform_mutation(self, node: Any, value: Any) -> None:
         rule = getattr(node, "data", None)
         if rule == "mut_var":
             name = str(node.children[0])
@@ -367,24 +346,18 @@ class LogosInterpreter(Interpreter):
             self._enforce_value_type(value, declared, context=name)
 
     def _enforce_icon_field_type(
-        self, container: dict, field_name: str, value: Any
+        self, container: Dict[str, Any], field_name: str, value: Any
     ) -> None:
         icon_name = container.get("__icon__")
         if icon_name:
             schema = self._icons.get(str(icon_name))
             if schema and (field_type := schema.get(field_name)):
-                self._enforce_value_type(
-                    value, field_type, context=f"{icon_name}.{field_name}"
-                )
+                self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
 
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
         actual_type = TypeCanon.get_type_of_value(value)
         known_decl = (
-            TypeCanon.NUMERIC
-            | TypeCanon.TEXT
-            | TypeCanon.BOOL
-            | TypeCanon.LIST
-            | TypeCanon.VOID
+            TypeCanon.NUMERIC | TypeCanon.TEXT | TypeCanon.BOOL | TypeCanon.LIST | TypeCanon.VOID
         )
         if actual_type == "Mystery":
             if type_name in known_decl:
@@ -397,7 +370,7 @@ class LogosInterpreter(Interpreter):
                 f"Canon Error: Type mismatch for '{context}': expected {type_name}, got {actual_type} ({value})."
             )
 
-    def _evaluate_mutable_target(self, node):
+    def _evaluate_mutable_target(self, node: Any) -> Any:
         rule = getattr(node, "data", None)
         if rule == "mut_var":
             return self.scope.get(str(node.children[0]))
@@ -414,16 +387,16 @@ class LogosInterpreter(Interpreter):
             return obj[int(idx)] if isinstance(obj, list) else obj[idx]
         return self.visit(node)
 
-    def get_attr(self, tree):
+    def get_attr(self, tree: Any) -> Any:
         obj = self.visit(tree.children[0])
         name = str(tree.children[1])
-        if isinstance(
-            obj, (ModuleFunction, ScopeManager, LogosInterpreter)
-        ) or name.startswith("_"):
+        if isinstance(obj, (ModuleFunction, ScopeManager, LogosInterpreter)) or name.startswith(
+            "_"
+        ):
             raise LogosError("Anathema: Attribute access forbidden on this spirit.")
         return obj.get(name) if isinstance(obj, dict) else getattr(obj, name)
 
-    def get_item(self, tree):
+    def get_item(self, tree: Any) -> Any:
         obj = self.visit(tree.children[0])
         idx = self.visit(tree.children[1])
         try:
@@ -433,65 +406,65 @@ class LogosInterpreter(Interpreter):
 
     # --- Expressions & Atoms ---
 
-    def var(self, tree):
+    def var(self, tree: Any) -> Any:
         return self.scope.get(str(tree.children[0]))
 
-    def number(self, tree):
+    def number(self, tree: Any) -> int | float:
         s = str(tree.children[0])
         return float(s) if "." in s else int(s)
 
-    def string(self, tree):
+    def string(self, tree: Any) -> str:
         return str(tree.children[0])[1:-1].replace("\\n", "\n")
 
-    def procession(self, tree):
+    def procession(self, tree: Any) -> List[Any]:
         return [self.visit(c) for c in tree.children]
 
-    def verily(self, _):
+    def verily(self, _: Any) -> bool:
         return True
 
-    def nay(self, _):
+    def nay(self, _: Any) -> bool:
         return False
 
-    def wildcard(self, _):
+    def wildcard(self, _: Any) -> str:
         return "__WILDCARD__"
 
-    def atom(self, tree):
+    def atom(self, tree: Any) -> Any:
         return self.visit(tree.children[0]) if tree.children else None
 
-    def add(self, t):
+    def add(self, t: Any) -> Any:
         return self.visit(t.children[0]) + self.visit(t.children[1])
 
-    def sub(self, t):
+    def sub(self, t: Any) -> Any:
         return self.visit(t.children[0]) - self.visit(t.children[1])
 
-    def mul(self, t):
+    def mul(self, t: Any) -> Any:
         return self.visit(t.children[0]) * self.visit(t.children[1])
 
-    def div(self, t):
+    def div(self, t: Any) -> Any:
         return self.visit(t.children[0]) / self.visit(t.children[1])
 
-    def neg(self, t):
+    def neg(self, t: Any) -> Any:
         return -self.visit(t.children[0])
 
-    def eq(self, t):
-        return self.visit(t.children[0]) == self.visit(t.children[1])
+    def eq(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) == self.visit(t.children[1]))
 
-    def ne(self, t):
-        return self.visit(t.children[0]) != self.visit(t.children[1])
+    def ne(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) != self.visit(t.children[1]))
 
-    def lt(self, t):
-        return self.visit(t.children[0]) < self.visit(t.children[1])
+    def lt(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) < self.visit(t.children[1]))
 
-    def gt(self, t):
-        return self.visit(t.children[0]) > self.visit(t.children[1])
+    def gt(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) > self.visit(t.children[1]))
 
-    def le(self, t):
-        return self.visit(t.children[0]) <= self.visit(t.children[1])
+    def le(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) <= self.visit(t.children[1]))
 
-    def ge(self, t):
-        return self.visit(t.children[0]) >= self.visit(t.children[1])
+    def ge(self, t: Any) -> bool:
+        return bool(self.visit(t.children[0]) >= self.visit(t.children[1]))
 
-    def transfigure(self, tree):
+    def transfigure(self, tree: Any) -> Any:
         val = self.visit(tree.children[0])
         target = str(tree.children[1])
         if target in ("HolyInt", "Int"):
@@ -502,14 +475,14 @@ class LogosInterpreter(Interpreter):
             return str(val)
         return val
 
-    def supplicate(self, tree):
+    def supplicate(self, tree: Any) -> str:
         prompt = str(self.visit(tree.children[0]))
         try:
             return self.io.read_input(prompt)
         except Exception:
             return input(prompt)
 
-    def contemplation(self, tree):
+    def contemplation(self, tree: Any) -> Any:
         target = self.visit(tree.children[0])
         for case in tree.children[1:]:
             pattern = self.visit(case.children[0])
@@ -517,5 +490,5 @@ class LogosInterpreter(Interpreter):
                 return self.visit(case.children[1])
         return None
 
-    def case_clause(self, tree):
+    def case_clause(self, tree: Any) -> Any:
         return tree

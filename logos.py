@@ -11,6 +11,7 @@ from logos_lang import (
     LOGOS_GRAMMAR,
     ConsoleIO,
     FFIManager,
+    ForeignFunction,
     IOHandler,
     LogosError,
     LogosInterpreter,
@@ -25,7 +26,6 @@ from logos_lang import (
     TailCall,
     TypeCanon,
     UserFunction,
-    ForeignFunction,
 )
 
 __all__ = [
@@ -80,9 +80,7 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
 def main():
     parser = argparse.ArgumentParser(description="Logos Liturgical Interpreter")
     parser.add_argument("script", nargs="?", help="Path to the liturgy file")
-    parser.add_argument(
-        "--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings"
-    )
+    parser.add_argument("--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings")
     parser.add_argument(
         "--allow-lib", action="append", default=[], help="Whitelist library for FFI"
     )
@@ -93,9 +91,7 @@ def main():
     )
     args = parser.parse_args()
 
-    security = (
-        SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
-    )
+    security = SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
 
     if args.allow_lib:
         security.allow_ffi = True

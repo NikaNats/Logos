@@ -10,7 +10,7 @@
 
 ## 🔥 Quickstart: Embarking on the Pilgrimage
 
-To begin your journey with Logos, ensure you have **Python 3.10+** installed.
+To begin your journey with Logos, ensure you have **Python 3.12+** installed.
 
 1.  **Clone the Repository:**
     ```bash
@@ -31,9 +31,9 @@ To begin your journey with Logos, ensure you have **Python 3.10+** installed.
     ```
 
 3.  **Install Core Dependencies:**
-    The Logos interpreter relies primarily on `lark`.
+    Dependencies are managed via `pyproject.toml`.
     ```bash
-    pip install lark
+    uv sync --group dev
     ```
 
 4.  **Run a Sample Liturgy:**
@@ -169,8 +169,9 @@ The Logos VS Code extension resides in `packages/logos-vscode` and provides synt
     npm install
     ```
 3.  **Language Server Dependencies:**
+    From repository root, install LSP extras:
     ```bash
-    pip install -r server/requirements.txt
+    uv sync --group dev --extra lsp
     ```
 4.  **Launch Extension Development Host:**
     In VS Code, press `F5` to open a window with the extension loaded.

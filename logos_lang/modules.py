@@ -1,11 +1,11 @@
 import os
-from typing import Any, Dict, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set
 
 from lark import Lark
 
 from .exceptions import LogosError
-from .models import SecurityContext, ModuleFunction, UserFunction
 from .grammar import LOGOS_GRAMMAR
+from .models import ModuleFunction, SecurityContext, UserFunction
 
 if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
@@ -19,7 +19,7 @@ class Module:
         types: Optional[Dict[str, str]] = None,
         icons: Optional[Dict[str, Dict[str, str]]] = None,
         interpreter: Optional["LogosInterpreter"] = None,
-    ):
+    ) -> None:
         self.path = path
         self.exports = exports
         self.types = types or {}
@@ -35,7 +35,7 @@ class Module:
 
 
 class ModuleManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self._modules: Dict[str, Module] = {}
         self._loading: Set[str] = set()
         self.security: Optional[SecurityContext] = None

@@ -4,7 +4,7 @@ from .exceptions import LogosError
 
 
 class ScopeManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.globals: Dict[str, Any] = {}
         self.stack: List[Dict[str, Any]] = []
 

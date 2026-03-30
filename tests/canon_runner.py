@@ -228,9 +228,7 @@ class CanonTests(unittest.TestCase):
         _assert_value_line(self, r.stdout, "20")
 
     def test_genesis_module_now_and_env(self) -> None:
-        r = _execute_fixture(
-            "stdlib_genesis_smoke_bits.lg", env={"LOGOS_TEST_ENV": "beacon"}
-        )
+        r = _execute_fixture("stdlib_genesis_smoke_bits.lg", env={"LOGOS_TEST_ENV": "beacon"})
         self.assertIsNone(r.error)
         _assert_value_line(self, r.stdout, "Verily")
         _assert_value_line(self, r.stdout, "beacon")

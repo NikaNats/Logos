@@ -1,8 +1,9 @@
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 
-def _resolve_print():
+def _resolve_print() -> Callable[..., object]:
     logos_mod = sys.modules.get("logos")
     return getattr(logos_mod, "print", print)
 

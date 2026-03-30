@@ -1,20 +1,20 @@
-from .grammar import LOGOS_GRAMMAR
 from .exceptions import LogosError, SecurityError
-from .interfaces import IOHandler, ConsoleIO
-from .models import (
-    SecurityContext,
-    UserFunction,
-    ModuleFunction,
-    TailCall,
-    ReturnValue,
-    ForeignFunction,
-)
-from .scope import ScopeManager
 from .ffi import FFIManager
-from .stdlib import StdLib
-from .modules import Module, ModuleManager
-from .types import TypeCanon
+from .grammar import LOGOS_GRAMMAR
+from .interfaces import ConsoleIO, IOHandler
 from .interpreter import LogosInterpreter
+from .models import (
+    ForeignFunction,
+    ModuleFunction,
+    ReturnValue,
+    SecurityContext,
+    TailCall,
+    UserFunction,
+)
+from .modules import Module, ModuleManager
+from .scope import ScopeManager
+from .stdlib import StdLib
+from .types import TypeCanon
 
 __all__ = [
     "LOGOS_GRAMMAR",

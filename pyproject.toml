@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "logos-lang"
+version = "0.1.0"
+description = "Logos liturgical programming language runtime and tooling."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "lark>=1.1.0",
+]
+
+[project.optional-dependencies]
+lsp = [
+  "pygls>=2.0.0",
+]
+build = [
+  "pyinstaller>=6.0",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11.0",
+  "pytest>=8.0.0",
+  "ruff>=0.13.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["logos_lang"]
+
+[tool.hatch.build.targets.wheel.package-data]
+logos_lang = ["py.typed"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+  ".venv",
+  ".specify",
+  "packages/logos-vscode/server/bin",
+  "packages/logos-vscode/server/build",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["logos_lang"]
+pretty = true
+show_error_codes = true
+warn_unused_configs = true

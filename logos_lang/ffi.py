@@ -4,7 +4,7 @@ import sys
 from typing import Any, Dict, List
 
 from .exceptions import LogosError, SecurityError
-from .models import SecurityContext, ForeignFunction
+from .models import ForeignFunction, SecurityContext
 
 
 class FFIManager:
@@ -49,13 +49,8 @@ class FFIManager:
             raise SecurityError("Apocrypha (FFI) is disabled by system dogma.")
 
         clean = self._clean_lib_name(lib_name)
-        if (
-            lib_name not in self.security.whitelist
-            and clean not in self.security.whitelist
-        ):
-            raise SecurityError(
-                f"Security Violation: Library '{lib_name}' is not permitted."
-            )
+        if lib_name not in self.security.whitelist and clean not in self.security.whitelist:
+            raise SecurityError(f"Security Violation: Library '{lib_name}' is not permitted.")
 
         if lib_name.lower().endswith((".dll", ".so", ".dylib")):
             filename = lib_name
@@ -79,9 +74,7 @@ class FFIManager:
     ) -> ForeignFunction:
         clean = self._clean_lib_name(lib_name)
         allowed_funcs = (
-            self.security.whitelist.get(lib_name)
-            or self.security.whitelist.get(clean)
-            or set()
+            self.security.whitelist.get(lib_name) or self.security.whitelist.get(clean) or set()
         )
         if func_name not in allowed_funcs:
             raise SecurityError(
@@ -102,7 +95,7 @@ class FFIManager:
         return ForeignFunction(func, c_restype, c_argtypes)
 
     def marshal_args(self, args: List[Any], definition: ForeignFunction) -> List[Any]:
-        c_args = []
+        c_args: List[Any] = []
         for val, c_type in zip(args, definition.argtypes):
             self._ensure_pointer_policy(c_type)
             if c_type == ctypes.c_char_p:

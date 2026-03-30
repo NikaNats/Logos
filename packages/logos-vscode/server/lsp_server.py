@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -46,11 +45,9 @@ if str(ROOT_DIR) not in sys.path:
 
 try:
     # IMPORT FROM NEW PACKAGE
-    from logos_lang import TypeCanon, LOGOS_GRAMMAR
+    from logos_lang import LOGOS_GRAMMAR, TypeCanon
 except ImportError:
-    _fatal(
-        "LOGOS Iconostasis: Could not import 'logos_lang'. Ensure repo root is in PYTHONPATH."
-    )
+    _fatal("LOGOS Iconostasis: Could not import 'logos_lang'. Ensure repo root is in PYTHONPATH.")
     raise
 
 # --- PARSER CACHING ---
@@ -198,16 +195,16 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
         return str(expr.children[1])
 
     if rule in ("add", "sub", "mul", "div", "eq", "ne", "lt", "gt", "le", "ge"):
-        l = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
-        r = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
-        if not l or not r:
+        left_type = _infer_expr_type(expr.children[0], lookup_var_type, func_sigs, diags)
+        right_type = _infer_expr_type(expr.children[1], lookup_var_type, func_sigs, diags)
+        if not left_type or not right_type:
             return None
-        res = TypeCanon.resolve_binary_op(rule, l, r)
+        res = TypeCanon.resolve_binary_op(rule, left_type, right_type)
         if not res:
             diags.append(
                 _diag_from_node(
                     expr,
-                    f"Type mismatch: cannot {rule} {l} and {r}.",
+                    f"Type mismatch: cannot {rule} {left_type} and {right_type}.",
                     DiagnosticSeverity.Error,
                 )
             )
@@ -248,7 +245,7 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
                 diags.append(
                     _diag_from_node(
                         expr,
-                        f"Type mismatch: call '{fname}' arg {i+1} expects {expected} got {actual}.",
+                        f"Type mismatch: call '{fname}' arg {i + 1} expects {expected} got {actual}.",
                         DiagnosticSeverity.Error,
                     )
                 )
@@ -258,7 +255,6 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
 
 def _typecheck(tree: Tree) -> list[Diagnostic]:
     diags = []
-    icons = _collect_icon_schemas(tree)
     mod_types = _collect_var_types(tree)
     sigs = _collect_function_sigs(tree)
     scope_stack = []
