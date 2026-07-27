@@ -1,5 +1,7 @@
 import {
   createConnection,
+  Diagnostic,
+  DiagnosticSeverity,
   InlayHint,
   InlayHintKind,
   InitializeParams,
@@ -142,6 +144,112 @@ connection.languages.inlayHint.on((params) => {
   }
   return computeInlayHints(document, params.range.start.line, params.range.end.line);
 });
+
+documents.onDidChangeContent((change) => {
+  validateTextDocument(change.document);
+});
+
+function validateTextDocument(textDocument: TextDocument): void {
+  const text = textDocument.getText();
+  const diagnostics: Diagnostic[] = [];
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((lineText, lineNumber) => {
+    // 1. Check inscribe type mismatch: inscribe x: HolyInt = "str";
+    const inscribeMatch = /\binscribe\s+([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\s*=\s*(.+?);/.exec(
+      lineText
+    );
+    if (inscribeMatch) {
+      const declaredType = inscribeMatch[2];
+      const expr = inscribeMatch[3].trim();
+      const inferred = inferType(expr);
+      if (inferred && !areTypesCompatible(declaredType, inferred)) {
+        const typeStart = lineText.indexOf(declaredType);
+        diagnostics.push({
+          severity: DiagnosticSeverity.Error,
+          range: {
+            start: { line: lineNumber, character: typeStart >= 0 ? typeStart : 0 },
+            end: {
+              line: lineNumber,
+              character: (typeStart >= 0 ? typeStart : 0) + declaredType.length,
+            },
+          },
+          message: `Heresy: Type mismatch: declared ${declaredType} but assigned ${inferred}.`,
+          source: "LOGOS Language Server",
+        });
+      }
+    }
+
+    // 2. Check amend type mismatch
+    const amendMatch = /\bamend\s+([A-Za-z_]\w*)\s*=\s*(.+?);/.exec(lineText);
+    if (amendMatch) {
+      const varName = amendMatch[1];
+      const expr = amendMatch[2].trim();
+      const inferred = inferType(expr);
+      const declaredType = findDeclaredType(text, varName);
+      if (declaredType && inferred && !areTypesCompatible(declaredType, inferred)) {
+        const varStart = lineText.indexOf(varName);
+        diagnostics.push({
+          severity: DiagnosticSeverity.Error,
+          range: {
+            start: { line: lineNumber, character: varStart >= 0 ? varStart : 0 },
+            end: {
+              line: lineNumber,
+              character: (varStart >= 0 ? varStart : 0) + varName.length,
+            },
+          },
+          message: `Heresy: Type mismatch: '${varName}' is ${declaredType} but amended with ${inferred}.`,
+          source: "LOGOS Language Server",
+        });
+      }
+    }
+
+    // 3. Check invalid operator on string: "a" - 1 or "a" * 3
+    const stringOpMatch = /"(?:[^"\\]|\\.)*"\s*[-*\/]\s*\d+/.exec(lineText);
+    if (stringOpMatch) {
+      diagnostics.push({
+        severity: DiagnosticSeverity.Error,
+        range: {
+          start: { line: lineNumber, character: stringOpMatch.index },
+          end: { line: lineNumber, character: stringOpMatch.index + stringOpMatch[0].length },
+        },
+        message: "Heresy: Type mismatch: invalid operator between Text and HolyInt.",
+        source: "LOGOS Language Server",
+      });
+    }
+  });
+
+  connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+}
+
+function areTypesCompatible(declared: string, actual: string): boolean {
+  if (declared === actual) return true;
+  if (
+    (declared === "HolyFloat" || declared === "Float" || declared === "Double") &&
+    (actual === "HolyInt" || actual === "Int")
+  ) {
+    return true;
+  }
+  if (
+    (declared === "Text" || declared === "String") &&
+    (actual === "Text" || actual === "String")
+  ) {
+    return true;
+  }
+  if (
+    (declared === "Bool" || declared === "Verily" || declared === "Nay") &&
+    (actual === "Bool" || actual === "Verily" || actual === "Nay")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function findDeclaredType(docText: string, varName: string): string | null {
+  const regex = new RegExp(`\\binscribe\\s+${varName}\\s*:\\s*([A-Za-z_]\\w*)`);
+  const match = regex.exec(docText);
+  return match ? match[1] : null;
+}
 
 function computeSemanticTokens(document: TextDocument) {
   const builder = new SemanticTokensBuilder();
@@ -392,7 +500,7 @@ function occupy(mask: boolean[], start: number, length: number): boolean {
   for (let i = start; i < start + length; i += 1) {
     if (mask[i]) {
       return false;
-    }
+  }
   }
   for (let i = start; i < start + length; i += 1) {
     mask[i] = true;
