@@ -13,6 +13,9 @@ dependencies = [
   "lark>=1.1.0",
 ]
 
+[project.scripts]
+logos = "logos:main"
+
 [project.optional-dependencies]
 lsp = [
   "pygls>=2.0.0",
@@ -32,10 +35,18 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["logos_lang"]
+packages = ["logos_lang", "lib"]
 
 [tool.hatch.build.targets.wheel.package-data]
 logos_lang = ["py.typed"]
+lib = ["*.lg"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "logos.py",
+  "logos_lang/",
+  "lib/",
+]
 
 [tool.ruff]
 target-version = "py312"

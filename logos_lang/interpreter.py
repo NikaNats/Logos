@@ -25,6 +25,8 @@ from .static_analysis import StaticTypeAnalyzer
 from .stdlib import StdLib
 from .types import TypeCanon
 
+# უნიკალური Sentinel ობიექტი Pattern Matching-ისთვის
+WILDCARD_SENTINEL = object()
 
 class LogosInterpreter(Interpreter[Any, Any]):
     def __init__(
@@ -351,7 +353,6 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 
                 if isinstance(result, ReturnValue):
                     if isinstance(result.value, TailCall):
-                        # Extract next iteration state *before* popping the current frame
                         next_func = result.value.func
                         next_args = result.value.args
                         
@@ -563,7 +564,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
         return float(s) if "." in s else int(s)
 
     def string(self, tree: Any) -> str:
-        return str(tree.children[0])[1:-1].replace("\\n", "\n")
+        # Better string escaping logic
+        raw_val = str(tree.children[0])[1:-1]
+        return raw_val.encode('utf-8').decode('unicode_escape')
 
     def procession(self, tree: Any) -> List[Any]:
         return [self.visit(c) for c in tree.children]
@@ -574,8 +577,8 @@ class LogosInterpreter(Interpreter[Any, Any]):
     def nay(self, _: Any) -> bool:
         return False
 
-    def wildcard(self, _: Any) -> str:
-        return "__WILDCARD__"
+    def wildcard(self, _: Any) -> Any:
+        return WILDCARD_SENTINEL
 
     def atom(self, tree: Any) -> Any:
         return self.visit(tree.children[0]) if tree.children else None
@@ -685,7 +688,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
         target = self.visit(tree.children[0])
         for case in tree.children[1:]:
             pattern = self.visit(case.children[0])
-            if pattern == "__WILDCARD__" or target == pattern:
+            if pattern is WILDCARD_SENTINEL or target == pattern:
                 return self.visit(case.children[1])
         return None
 
