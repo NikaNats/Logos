@@ -67,12 +67,14 @@ class ModuleManager:
 
         base_dir = os.path.dirname(requestor_path)
         abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
-        resolved_path = os.path.realpath(abs_path)
+        resolved_path = os.path.normcase(os.path.realpath(abs_path))
 
-        root_base = os.path.realpath(
-            parent_interp.base_path
-            if parent_interp and parent_interp.base_path
-            else os.getcwd()
+        root_base = os.path.normcase(
+            os.path.realpath(
+                parent_interp.base_path
+                if parent_interp and parent_interp.base_path
+                else os.getcwd()
+            )
         )
         try:
             if os.path.commonpath([root_base, resolved_path]) != root_base:

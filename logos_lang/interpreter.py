@@ -322,9 +322,11 @@ class LogosInterpreter(Interpreter[Any, Any]):
             self._recursion_depth -= 1
 
     def _invoke_user_function(self, func: UserFunction, args: List[Any]) -> Any:
-        current_func, current_args = func, args
+        current_func = func
+        current_args = args
         tail_hops = 0
         tail_limit = max(int(os.environ.get("LOGOS_MAX_TCO", "1000000")), self._max_recursion * 100)
+
         while True:
             if len(current_args) != len(current_func.params):
                 raise LogosError(
@@ -342,14 +344,26 @@ class LogosInterpreter(Interpreter[Any, Any]):
 
             self.scope.push_frame(dict(zip(current_func.params, current_args)))
             self._type_stack.append({})
+            popped = False
+
             try:
                 result = self.visit(current_func.body)
+                
                 if isinstance(result, ReturnValue):
                     if isinstance(result.value, TailCall):
-                        current_func = result.value.func
-                        current_args = result.value.args
+                        # Extract next iteration state *before* popping the current frame
+                        next_func = result.value.func
+                        next_args = result.value.args
+                        
                         tail_hops += 1
+                        self._type_stack.pop()
+                        self.scope.pop_frame()
+                        popped = True
+                        
+                        current_func = next_func
+                        current_args = next_args
                         continue
+                    
                     res_val = result.value
                 else:
                     res_val = result
@@ -360,8 +374,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
                     )
                 return res_val
             finally:
-                self._type_stack.pop()
-                self.scope.pop_frame()
+                if not popped:
+                    self._type_stack.pop()
+                    self.scope.pop_frame()
 
     def _invoke_foreign_function(self, func: ForeignFunction, args: List[Any]) -> Any:
         if func.argtypes and len(args) != len(func.argtypes):

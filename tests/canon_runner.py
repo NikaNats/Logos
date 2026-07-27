@@ -38,9 +38,9 @@ def _execute_fixture(
         for k, v in env.items():
             os.environ[str(k)] = str(v)
 
-    # Use the library interpreter
+    # Use ROOT as base_path so fixtures can load lib/*.lg traditions safely
     interpreter = logos_lang.LogosInterpreter(
-        base_path=str(FIXTURES),
+        base_path=str(ROOT),
         security=security or logos_lang.SecurityContext.strict(),
     )
     interpreter._current_file = str(fixture_path)
@@ -48,11 +48,7 @@ def _execute_fixture(
 
     buf = StringIO()
     err: Exception | None = None
-    # Patch the interpreter's IO to capture output
     interpreter.io = logos_lang.ConsoleIO()
-    # Use contextlib to catch raw prints if necessary,
-    # but strictly we should mock interpreter.io in a pure unit test.
-    # For now, we redirect stdout to capture standard prints.
     with redirect_stdout(buf):
         try:
             source = fixture_path.read_text(encoding="utf-8")
@@ -85,7 +81,6 @@ def _assert_value_line(test: unittest.TestCase, stdout: str, value: str) -> None
 
 
 class CanonTests(unittest.TestCase):
-    # (Existing tests remain unchanged, they use the helpers above)
     def test_precedence_multiplication_before_addition(self) -> None:
         r = _execute_fixture("precedence_1.lg")
         self.assertIsNone(r.error)

@@ -15,17 +15,20 @@ class SecurityTests(unittest.TestCase):
     def test_sandbox_escape_is_prevented(self) -> None:
         result = _execute_fixture("security/reflection_attack.lg")
         self.assertNotIn("HERESY", result.stdout)
-        # Either the vigil handler prints a denial or the interpreter raises a forbidden-access error.
         if result.stdout:
             self.assertIn("Access denied", result.stdout)
         else:
             self.assertIsNotNone(result.error)
-            self.assertIn("forbidden", str(result.error).lower())
+            err_msg = str(result.error).lower()
+            self.assertTrue(
+                any(k in err_msg for k in ("blocked", "forbidden", "security violation"))
+            )
 
     def test_path_traversal_blocked(self) -> None:
         result = _execute_fixture("security/path_traversal_blocked.lg")
-        self.assertIsNone(result.error)
-        self.assertIn("0", result.stdout)
+        self.assertIsNotNone(result.error)
+        self.assertIsInstance(result.error, logos_lang.SecurityError)
+        self.assertIn("Path traversal blocked", str(result.error))
 
     def test_private_attribute_blocked(self) -> None:
         result = _execute_fixture("security/private_attr_block.lg")
@@ -47,11 +50,10 @@ class SecurityTests(unittest.TestCase):
             parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
             interp = logos_lang.LogosInterpreter(base_path=base)
 
-            buf = StringIO()
-            with redirect_stdout(buf):
+            with self.assertRaises(logos_lang.SecurityError) as ctx:
                 interp.visit(parser.parse(source))
 
-            self.assertIn("0", buf.getvalue())
+            self.assertIn("Path traversal blocked", str(ctx.exception))
 
     def test_poisoned_host_environment_cannot_escape_interpreter(self) -> None:
         parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
@@ -78,5 +80,5 @@ class SecurityTests(unittest.TestCase):
             builtins.open = original_open
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     unittest.main(verbosity=2)

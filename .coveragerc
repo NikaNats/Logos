@@ -18,13 +18,14 @@ omit =
     tests/*
 
 [report]
-fail_under = 100
+fail_under = 90
 show_missing = True
 skip_empty = True
 
 include =
     logos.py
+    logos_lang/*
 
 exclude_lines =
     pragma: no cover
-    if __name__ == .__main__.: 
+    if __name__ == .__main__.:

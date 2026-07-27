@@ -12,44 +12,42 @@ class SpectestConformanceTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
 
-    def _run(self, source: str) -> logos_lang.LogosInterpreter:
-        interp = logos_lang.LogosInterpreter(execution_engine="visitor")
+    def _run(self, source: str, engine: str = "visitor") -> logos_lang.LogosInterpreter:
+        interp = logos_lang.LogosInterpreter(execution_engine=engine)
         tree = self._parser.parse(source)
         interp.visit(tree)
         return interp
 
     def test_operator_precedence_and_associativity_via_scope_state(self) -> None:
-        interp = self._run(
-            "\n".join(
-                [
-                    "inscribe a: HolyInt = 2 + 3 * 4;",
-                    "inscribe b: HolyInt = (2 + 3) * 4;",
-                    "inscribe c: HolyInt = 9 - 3 - 2;",
-                    "inscribe d: HolyInt = transfigure (5 / 2) into HolyInt;",
-                ]
-            )
+        source = "\n".join(
+            [
+                "inscribe a: HolyInt = 2 + 3 * 4;",
+                "inscribe b: HolyInt = (2 + 3) * 4;",
+                "inscribe c: HolyInt = 9 - 3 - 2;",
+                "inscribe d: HolyInt = transfigure (5 / 2) into HolyInt;",
+            ]
         )
-
-        self.assertEqual(interp.scope.get("a"), 14)
-        self.assertEqual(interp.scope.get("b"), 20)
-        self.assertEqual(interp.scope.get("c"), 4)
-        self.assertEqual(interp.scope.get("d"), 2)
-        self.assertEqual(interp.scope.stack, [])
+        for engine in ("visitor", "vm-hybrid"):
+            with self.subTest(engine=engine):
+                interp = self._run(source, engine=engine)
+                self.assertEqual(interp.scope.get("a"), 14)
+                self.assertEqual(interp.scope.get("b"), 20)
+                self.assertEqual(interp.scope.get("c"), 4)
+                self.assertEqual(interp.scope.get("d"), 2)
+                self.assertEqual(interp.scope.stack, [])
 
     def test_shadowing_and_frame_push_pop_rules(self) -> None:
-        interp = self._run(
-            "\n".join(
-                [
-                    "inscribe age: HolyInt = 40;",
-                    "mystery elder(age: HolyInt) -> HolyInt {",
-                    "  inscribe age: HolyInt = age + 2;",
-                    "  offer age;",
-                    "} amen",
-                    "inscribe result: HolyInt = elder(age);",
-                ]
-            )
+        source = "\n".join(
+            [
+                "inscribe age: HolyInt = 40;",
+                "mystery elder(age: HolyInt) -> HolyInt {",
+                "  inscribe age: HolyInt = age + 2;",
+                "  offer age;",
+                "} amen",
+                "inscribe result: HolyInt = elder(age);",
+            ]
         )
-
+        interp = self._run(source)
         self.assertEqual(interp.scope.get("age"), 40)
         self.assertEqual(interp.scope.get("result"), 42)
         self.assertEqual(interp.scope.stack, [])
@@ -106,11 +104,13 @@ class SpectestConformanceTests(unittest.TestCase):
                 "inscribe broken = text - age;",
             ]
         )
-        interp = logos_lang.LogosInterpreter(execution_engine="visitor")
-        tree = self._parser.parse(source)
+        for engine in ("visitor", "vm-hybrid"):
+            with self.subTest(engine=engine):
+                interp = logos_lang.LogosInterpreter(execution_engine=engine)
+                tree = self._parser.parse(source)
 
-        with self.assertRaises(logos_lang.LogosError):
-            interp.visit(tree)
+                with self.assertRaises(logos_lang.LogosError):
+                    interp.visit(tree)
 
 
 if __name__ == "__main__":
