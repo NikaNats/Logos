@@ -46,9 +46,17 @@ mystery close_scroll(fd) {
 } amen
 
 mystery write_line(fd, text) {
-    inscribe newline = "\n";
-    __sys_write(fd, text);
-    offer __sys_write(fd, newline);
+    inscribe ok1 = __sys_write(fd, text);
+    inscribe ok2 = __sys_write(fd, "\n");
+    discern (ok1 is Verily) {
+        discern (ok2 is Verily) {
+            offer Verily;
+        } otherwise {
+            offer Nay;
+        } amen
+    } otherwise {
+        offer Nay;
+    } amen
 } amen
 
 mystery read_passage(fd, length) {
