@@ -173,13 +173,19 @@ class LogosInterpreter(Interpreter[Any, Any]):
         return result
 
     def discernment(self, tree: Any) -> Any:
-        if self.visit(tree.children[0]):
+        cond_val = self.visit(tree.children[0])
+        self._enforce_value_type(cond_val, "Bool", context="discern condition")
+        if cond_val:
             return self.visit(tree.children[1])
         return self.visit(tree.children[2])
 
     def chant(self, tree: Any) -> Any:
         condition, body = tree.children
-        while self.visit(condition):
+        while True:
+            cond_val = self.visit(condition)
+            self._enforce_value_type(cond_val, "Bool", context="chant condition")
+            if not cond_val:
+                break
             result = self.visit(body)
             if isinstance(result, ReturnValue):
                 return result
@@ -237,13 +243,29 @@ class LogosInterpreter(Interpreter[Any, Any]):
             raise LogosError(f"Canon Error: Mystery name '{name}' must be snake_case.")
         idx = 1
         params = []
+        param_types: Dict[str, Optional[str]] = {}
         if idx < len(tree.children) and getattr(tree.children[idx], "data", "") == "params":
-            params = [str(p.children[0]) for p in tree.children[idx].children]
+            for p in tree.children[idx].children:
+                p_name = str(p.children[0])
+                p_type = str(p.children[1]) if len(p.children) > 1 else None
+                params.append(p_name)
+                param_types[p_name] = p_type
             idx += 1
+        return_type = None
         if idx < len(tree.children) and getattr(tree.children[idx], "type", "") == "NAME":
+            return_type = str(tree.children[idx])
             idx += 1
         body = tree.children[idx]
-        self.scope.register_builtin(name, UserFunction(name, params, body))
+        self.scope.register_builtin(
+            name,
+            UserFunction(
+                name,
+                params,
+                body,
+                param_types=param_types,
+                return_type=return_type,
+            ),
+        )
 
     def apocrypha(self, tree: Any) -> None:
         lib_str = str(tree.children[0])[1:-1]
@@ -304,6 +326,13 @@ class LogosInterpreter(Interpreter[Any, Any]):
             if tail_hops > tail_limit:
                 raise LogosError("Pride: Tail-call loop exceeded recursion policy.")
 
+            for p_name, arg_val in zip(current_func.params, current_args):
+                p_type = current_func.param_types.get(p_name)
+                if p_type:
+                    self._enforce_value_type(
+                        arg_val, p_type, context=f"{current_func.name} param '{p_name}'"
+                    )
+
             self.scope.push_frame(dict(zip(current_func.params, current_args)))
             self._type_stack.append({})
             try:
@@ -314,8 +343,15 @@ class LogosInterpreter(Interpreter[Any, Any]):
                         current_args = result.value.args
                         tail_hops += 1
                         continue
-                    return result.value
-                return result
+                    res_val = result.value
+                else:
+                    res_val = result
+
+                if current_func.return_type:
+                    self._enforce_value_type(
+                        res_val, current_func.return_type, context=f"{current_func.name} return"
+                    )
+                return res_val
             finally:
                 self._type_stack.pop()
                 self.scope.pop_frame()
@@ -353,16 +389,21 @@ class LogosInterpreter(Interpreter[Any, Any]):
 
     def write_icon(self, tree: Any) -> Dict[str, Any]:
         name = str(tree.children[0])
+        if name not in TypeCanon.KNOWN_DECL and name not in self._icons:
+            raise LogosError(f"Canon Error: Unknown icon type '{name}'.")
         assigns = self.visit(tree.children[1]) if len(tree.children) > 1 else []
         obj = {"__icon__": name}
         values = dict(assigns)
         schema = self._icons.get(name)
         if schema:
             for field_name, field_type in schema.items():
-                if field_name in values:
-                    self._enforce_value_type(
-                        values[field_name], field_type, context=f"{name}.{field_name}"
+                if field_name not in values:
+                    raise LogosError(
+                        f"Canon Error: Missing field '{field_name}' when constructing icon '{name}'."
                     )
+                self._enforce_value_type(
+                    values[field_name], field_type, context=f"{name}.{field_name}"
+                )
         obj.update(values)
         return obj
 
@@ -432,16 +473,10 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
 
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
+        if type_name not in TypeCanon.KNOWN_DECL and type_name not in self._icons:
+            raise LogosError(f"Canon Error: Unknown type '{type_name}' for '{context}'.")
+
         actual_type = TypeCanon.get_type_of_value(value)
-        known_decl = (
-            TypeCanon.NUMERIC | TypeCanon.TEXT | TypeCanon.BOOL | TypeCanon.LIST | TypeCanon.VOID
-        )
-        if actual_type == "Mystery":
-            if type_name in known_decl:
-                raise LogosError(
-                    f"Canon Error: Type mismatch for '{context}': expected {type_name}, got unknown type ({value})."
-                )
-            return
         if not TypeCanon.are_compatible(type_name, actual_type):
             raise LogosError(
                 f"Canon Error: Type mismatch for '{context}': expected {type_name}, got {actual_type} ({value})."
@@ -508,20 +543,64 @@ class LogosInterpreter(Interpreter[Any, Any]):
     def atom(self, tree: Any) -> Any:
         return self.visit(tree.children[0]) if tree.children else None
 
+    def _eval_binary_op(self, op: str, left_val: Any, right_val: Any) -> Any:
+        left_t = TypeCanon.get_type_of_value(left_val)
+        right_t = TypeCanon.get_type_of_value(right_val)
+        res_type = TypeCanon.resolve_binary_op(op, left_t, right_t)
+        if res_type is None:
+            raise LogosError(
+                f"Canon Error: Invalid operation '{op}' between types {left_t} and {right_t}."
+            )
+        if op in ("add", "+"):
+            return left_val + right_val
+        if op in ("sub", "-"):
+            return left_val - right_val
+        if op in ("mul", "*"):
+            return left_val * right_val
+        if op in ("div", "/"):
+            if right_val == 0:
+                raise LogosError("Anathema: Division by zero.")
+            return left_val / right_val
+        if op in ("lt", "<"):
+            return bool(left_val < right_val)
+        if op in ("gt", ">"):
+            return bool(left_val > right_val)
+        if op in ("le", "<="):
+            return bool(left_val <= right_val)
+        if op in ("ge", ">="):
+            return bool(left_val >= right_val)
+        raise LogosError(f"Schism: Unknown binary operator '{op}'.")
+
     def add(self, t: Any) -> Any:
-        return self.visit(t.children[0]) + self.visit(t.children[1])
+        return self._eval_binary_op("add", self.visit(t.children[0]), self.visit(t.children[1]))
 
     def sub(self, t: Any) -> Any:
-        return self.visit(t.children[0]) - self.visit(t.children[1])
+        return self._eval_binary_op("sub", self.visit(t.children[0]), self.visit(t.children[1]))
 
     def mul(self, t: Any) -> Any:
-        return self.visit(t.children[0]) * self.visit(t.children[1])
+        return self._eval_binary_op("mul", self.visit(t.children[0]), self.visit(t.children[1]))
 
     def div(self, t: Any) -> Any:
-        return self.visit(t.children[0]) / self.visit(t.children[1])
+        return self._eval_binary_op("div", self.visit(t.children[0]), self.visit(t.children[1]))
+
+    def lt(self, t: Any) -> Any:
+        return self._eval_binary_op("lt", self.visit(t.children[0]), self.visit(t.children[1]))
+
+    def gt(self, t: Any) -> Any:
+        return self._eval_binary_op("gt", self.visit(t.children[0]), self.visit(t.children[1]))
+
+    def le(self, t: Any) -> Any:
+        return self._eval_binary_op("le", self.visit(t.children[0]), self.visit(t.children[1]))
+
+    def ge(self, t: Any) -> Any:
+        return self._eval_binary_op("ge", self.visit(t.children[0]), self.visit(t.children[1]))
 
     def neg(self, t: Any) -> Any:
-        return -self.visit(t.children[0])
+        val = self.visit(t.children[0])
+        val_t = TypeCanon.get_type_of_value(val)
+        if val_t not in TypeCanon.NUMERIC:
+            raise LogosError(f"Canon Error: Unary '-' expects numeric type, got {val_t}.")
+        return -val
 
     def eq(self, t: Any) -> bool:
         return bool(self.visit(t.children[0]) == self.visit(t.children[1]))
@@ -529,28 +608,27 @@ class LogosInterpreter(Interpreter[Any, Any]):
     def ne(self, t: Any) -> bool:
         return bool(self.visit(t.children[0]) != self.visit(t.children[1]))
 
-    def lt(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) < self.visit(t.children[1]))
-
-    def gt(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) > self.visit(t.children[1]))
-
-    def le(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) <= self.visit(t.children[1]))
-
-    def ge(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) >= self.visit(t.children[1]))
-
     def transfigure(self, tree: Any) -> Any:
         val = self.visit(tree.children[0])
         target = str(tree.children[1])
+        return self._cast_value(val, target)
+
+    def _cast_value(self, val: Any, target: str) -> Any:
         if target in ("HolyInt", "Int"):
-            return int(val)
-        if target in ("HolyFloat", "Float"):
-            return float(val)
+            try:
+                return int(val)
+            except (ValueError, TypeError) as exc:
+                raise LogosError(f"Canon Error: Cannot transfigure {val} into {target}.") from exc
+        if target in ("HolyFloat", "Float", "Double"):
+            try:
+                return float(val)
+            except (ValueError, TypeError) as exc:
+                raise LogosError(f"Canon Error: Cannot transfigure {val} into {target}.") from exc
         if target in ("Text", "String"):
             return str(val)
-        return val
+        if target in ("Bool", "Verily", "Nay"):
+            return bool(val)
+        raise LogosError(f"Canon Error: Unknown transfigure target type '{target}'.")
 
     def supplicate(self, tree: Any) -> str:
         prompt = str(self.visit(tree.children[0]))

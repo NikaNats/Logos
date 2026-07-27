@@ -8,6 +8,7 @@ from lark import Tree
 
 from .exceptions import LogosError
 from .models import ForeignFunction, ModuleFunction, UserFunction
+from .types import TypeCanon
 
 if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
@@ -363,30 +364,60 @@ class BytecodeVM:
 
             if opcode == OpCode.ADD:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("add", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'add' between types {left_t} and {right_t}."
+                    )
                 stack.append(left + right)
                 ip += 1
                 continue
 
             if opcode == OpCode.SUB:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("sub", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'sub' between types {left_t} and {right_t}."
+                    )
                 stack.append(left - right)
                 ip += 1
                 continue
 
             if opcode == OpCode.MUL:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("mul", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'mul' between types {left_t} and {right_t}."
+                    )
                 stack.append(left * right)
                 ip += 1
                 continue
 
             if opcode == OpCode.DIV:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("div", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'div' between types {left_t} and {right_t}."
+                    )
+                if right == 0:
+                    raise LogosError("Anathema: Division by zero.")
                 stack.append(left / right)
                 ip += 1
                 continue
 
             if opcode == OpCode.NEG:
-                stack.append(-self._pop(stack, opcode))
+                val = self._pop(stack, opcode)
+                val_t = TypeCanon.get_type_of_value(val)
+                if val_t not in TypeCanon.NUMERIC:
+                    raise LogosError(f"Canon Error: Unary '-' expects numeric type, got {val_t}.")
+                stack.append(-val)
                 ip += 1
                 continue
 
@@ -404,24 +435,48 @@ class BytecodeVM:
 
             if opcode == OpCode.LT:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("lt", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'lt' between types {left_t} and {right_t}."
+                    )
                 stack.append(bool(left < right))
                 ip += 1
                 continue
 
             if opcode == OpCode.GT:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("gt", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'gt' between types {left_t} and {right_t}."
+                    )
                 stack.append(bool(left > right))
                 ip += 1
                 continue
 
             if opcode == OpCode.LE:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("le", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'le' between types {left_t} and {right_t}."
+                    )
                 stack.append(bool(left <= right))
                 ip += 1
                 continue
 
             if opcode == OpCode.GE:
                 right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("ge", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'ge' between types {left_t} and {right_t}."
+                    )
                 stack.append(bool(left >= right))
                 ip += 1
                 continue
@@ -461,6 +516,7 @@ class BytecodeVM:
 
             if opcode == OpCode.JUMP_IF_FALSE:
                 condition = self._pop(stack, opcode)
+                self._interpreter._enforce_value_type(condition, "Bool", context="jump condition")
                 if not condition:
                     ip = cast(int, instruction.arg)
                     continue
@@ -506,12 +562,20 @@ class BytecodeVM:
     @staticmethod
     def _cast_value(value: Any, target: str) -> Any:
         if target in ("HolyInt", "Int"):
-            return int(value)
-        if target in ("HolyFloat", "Float"):
-            return float(value)
+            try:
+                return int(value)
+            except (ValueError, TypeError) as exc:
+                raise LogosError(f"Canon Error: Cannot transfigure {value} into {target}.") from exc
+        if target in ("HolyFloat", "Float", "Double"):
+            try:
+                return float(value)
+            except (ValueError, TypeError) as exc:
+                raise LogosError(f"Canon Error: Cannot transfigure {value} into {target}.") from exc
         if target in ("Text", "String"):
             return str(value)
-        return value
+        if target in ("Bool", "Verily", "Nay"):
+            return bool(value)
+        raise LogosError(f"Canon Error: Unknown transfigure target type '{target}'.")
 
     @staticmethod
     def _pop(stack: List[Any], opcode: OpCode) -> Any:

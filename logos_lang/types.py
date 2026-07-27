@@ -7,6 +7,7 @@ class TypeCanon:
     BOOL = {"Bool", "Verily", "Nay"}
     LIST = {"Procession"}
     VOID = {"Void", "None"}
+    KNOWN_DECL = NUMERIC | TEXT | BOOL | LIST | VOID | {"Mystery", "Module"}
 
     @classmethod
     def get_type_of_value(cls, value: Any) -> str:
@@ -22,10 +23,16 @@ class TypeCanon:
             return "Procession"
         if value is None:
             return "Void"
+        if isinstance(value, dict) and "__icon__" in value:
+            return str(value["__icon__"])
         return "Mystery"
 
     @classmethod
     def are_compatible(cls, declared: str, actual: str) -> bool:
+        if declared == "Mystery":
+            return True
+        if actual == "Mystery":
+            return False
         if declared == actual:
             return True
         if declared in ("HolyFloat", "Float", "Double") and actual in (
@@ -55,12 +62,12 @@ class TypeCanon:
             if left_t in cls.NUMERIC and right_t in cls.NUMERIC:
                 if op in ("div", "/"):
                     return "HolyFloat"
-                if "HolyFloat" in (left_t, right_t) or "Float" in (left_t, right_t):
+                if "HolyFloat" in (left_t, right_t) or "Float" in (left_t, right_t) or "Double" in (left_t, right_t):
                     return "HolyFloat"
                 return "HolyInt"
             return None
 
-        if op in ("lt", "gt", "le", "ge", "eq", "ne", "<", ">", "<=", ">=", "is"):
+        if op in ("lt", "gt", "le", "ge", "eq", "ne", "<", ">", "<=", ">=", "is", "is not"):
             if op in ("lt", "gt", "le", "ge", "<", ">", "<=", ">="):
                 if left_t in cls.NUMERIC and right_t in cls.NUMERIC:
                     return "Bool"

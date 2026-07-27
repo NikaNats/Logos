@@ -230,9 +230,12 @@ class RuntimeInternalsTests(unittest.TestCase):
         with self.assertRaises(logos_lang.LogosError):
             self._run_program("inscribe x=1; x();")
 
-    def test_transfigure_unknown_type_returns_value(self) -> None:
-        _, out = self._run_program("proclaim transfigure 5 into Unknown;")
-        self.assertIn("5", out)
+    def test_transfigure_unknown_type_raises_error(self) -> None:
+        interp = logos_lang.LogosInterpreter()
+        parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
+        tree = parser.parse("transfigure 5 into Unknown;")
+        with self.assertRaises(logos_lang.LogosError):
+            interp.visit(tree)
 
     def test_unknown_tradition_raises(self) -> None:
         interp = logos_lang.LogosInterpreter(base_path=os.getcwd())

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set
 
 FFI_BACKEND_CTYPES: Literal["ctypes"] = "ctypes"
 FFI_BACKEND_RUST: Literal["rust"] = "rust"
@@ -89,6 +89,8 @@ class UserFunction:
     name: str
     params: List[str]
     body: Any
+    param_types: Dict[str, Optional[str]] = field(default_factory=dict)
+    return_type: Optional[str] = None
 
 
 @dataclass(frozen=True)
