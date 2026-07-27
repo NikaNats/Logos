@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import TYPE_CHECKING, Any, Dict, Optional, Set
 
 from lark import Lark
@@ -27,6 +28,21 @@ class Module:
         self.interpreter = interpreter
         self.exports["__icon__"] = "Module"
 
+    def sync_exports(self) -> None:
+        if not self.interpreter:
+            return
+        for k, v in self.interpreter.scope.globals.items():
+            if (
+                k in self.interpreter._builtin_snapshot
+                and v is self.interpreter._builtin_snapshot[k]
+            ):
+                continue
+            if isinstance(v, UserFunction):
+                if k not in self.exports or not isinstance(self.exports[k], ModuleFunction):
+                    self.exports[k] = ModuleFunction(v, self.interpreter, self.exports)
+            else:
+                self.exports[k] = v
+
     def __getitem__(self, key: str) -> Any:
         return self.exports[key]
 
@@ -40,7 +56,12 @@ class ModuleManager:
         self._loading: Set[str] = set()
         self.security: Optional[SecurityContext] = None
 
-    def load_module(self, requestor_path: str, rel_path: str) -> Module:
+    def load_module(
+        self,
+        requestor_path: str,
+        rel_path: str,
+        parent_interp: Optional["LogosInterpreter"] = None,
+    ) -> Module:
         # Avoid circular import at top-level
         from .interpreter import LogosInterpreter
 
@@ -50,7 +71,7 @@ class ModuleManager:
         if abs_path in self._modules:
             return self._modules[abs_path]
         if abs_path in self._loading:
-            print(f"☩ Cycle detected importing {rel_path}. Returning partial spirit.")
+            sys.stderr.write(f"☩ Cycle detected importing {rel_path}. Returning partial spirit.\n")
             return Module(abs_path, {})
         if not os.path.exists(abs_path):
             raise LogosError(f"Schism: Tradition not found: {abs_path}")
@@ -60,11 +81,24 @@ class ModuleManager:
             with open(abs_path, "r", encoding="utf-8") as f:
                 source = f.read()
 
-            security = self.security or SecurityContext.strict()
+            security = self.security or (
+                parent_interp.security if parent_interp else SecurityContext.strict()
+            )
+            io_handler = parent_interp.io if parent_interp else None
+            execution_engine = parent_interp.execution_engine if parent_interp else None
+            enable_static_type_elision = (
+                parent_interp.enable_static_type_elision if parent_interp else True
+            )
+            trusted_lsp_types = parent_interp.trusted_lsp_types if parent_interp else None
+
             child_interp = LogosInterpreter(
                 base_path=os.path.dirname(abs_path),
                 module_manager=self,
                 security=security,
+                io_handler=io_handler,
+                execution_engine=execution_engine,
+                enable_static_type_elision=enable_static_type_elision,
+                trusted_lsp_types=trusted_lsp_types,
             )
             child_interp._current_file = abs_path
             tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(source)

@@ -219,7 +219,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
         rel_path = str(tree.children[0])[1:-1]
         alias = str(tree.children[1]) if len(tree.children) > 1 else None
         requestor = getattr(self, "_current_file", os.path.join(self.base_path, "__main__.lg"))
-        module = self.module_manager.load_module(requestor_path=requestor, rel_path=rel_path)
+        module = self.module_manager.load_module(
+            requestor_path=requestor, rel_path=rel_path, parent_interp=self
+        )
 
         for name, type_name in module.types.items():
             self._declare_type(name, type_name)
@@ -233,8 +235,6 @@ class LogosInterpreter(Interpreter[Any, Any]):
         for name, value in module.exports.items():
             if name == "__icon__":
                 continue
-            if isinstance(value, ModuleFunction):
-                value = value.func
             self.scope.set(name, value)
         return module.exports
 
@@ -290,13 +290,13 @@ class LogosInterpreter(Interpreter[Any, Any]):
         spirit = self.scope.get(func_name)
 
         if isinstance(spirit, ModuleFunction):
-            sync = {
-                k: (v.func if isinstance(v, ModuleFunction) else v)
-                for k, v in spirit.exports.items()
-                if k != "__icon__"
-            }
-            spirit.interpreter.scope.globals.update(sync)
-            return spirit.interpreter._invoke_user_function(spirit.func, args)
+            res = spirit.interpreter._invoke_user_function(spirit.func, args)
+            mod = spirit.interpreter.module_manager._modules.get(
+                spirit.interpreter._current_file
+            )
+            if mod:
+                mod.sync_exports()
+            return res
 
         if self._recursion_depth > self._max_recursion:
             raise LogosError("Pride: Recursion depth exceeded.")
