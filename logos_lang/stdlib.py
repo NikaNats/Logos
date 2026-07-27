@@ -3,7 +3,7 @@ import sys
 import time
 from typing import IO, TYPE_CHECKING, Any, Dict, Union
 
-from .exceptions import LogosError
+from .exceptions import LogosError, SecurityError
 
 if TYPE_CHECKING:
     from .scope import ScopeManager
@@ -43,12 +43,16 @@ class StdLib:
         scope.register_builtin("argv", sys.argv[2:] if len(sys.argv) > 2 else [])
 
     def _open(self, path: str, mode: Union[int, str]) -> int:
+        base = os.path.realpath(os.path.abspath(self.base_path))
+        abs_path = os.path.abspath(os.path.join(base, str(path)))
+        resolved = os.path.realpath(abs_path)
         try:
-            base = os.path.realpath(os.path.abspath(self.base_path))
-            abs_path = os.path.abspath(os.path.join(base, str(path)))
-            resolved = os.path.realpath(abs_path)
             if os.path.commonpath([base, resolved]) != base:
-                raise LogosError("Path traversal blocked")
+                raise SecurityError("Security Violation: Path traversal blocked.")
+        except ValueError:
+            raise SecurityError("Security Violation: Path traversal blocked.")
+
+        try:
             mode_str = {0: "r", 1: "w", 2: "a"}.get(int(mode), "r")
             fd = self._next_fd
             self._fds[fd] = open(resolved, mode_str, encoding="utf-8")
