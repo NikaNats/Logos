@@ -166,12 +166,18 @@ class LogosInterpreter(Interpreter[Any, Any]):
     # --- Flow Control ---
 
     def block(self, tree: Any) -> Any:
-        result = None
-        for stmt in tree.children:
-            result = self.visit(stmt)
-            if isinstance(result, ReturnValue):
-                return result
-        return result
+        self.scope.push_frame({})
+        self._type_stack.append({})
+        try:
+            result = None
+            for stmt in tree.children:
+                result = self.visit(stmt)
+                if isinstance(result, ReturnValue):
+                    return result
+            return result
+        finally:
+            self._type_stack.pop()
+            self.scope.pop_frame()
 
     def discernment(self, tree: Any) -> Any:
         cond_val = self.visit(tree.children[0])
@@ -257,7 +263,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
             return_type = str(tree.children[idx])
             idx += 1
         body = tree.children[idx]
-        self.scope.register_builtin(
+        self.scope.declare(
             name,
             UserFunction(
                 name,
@@ -407,6 +413,11 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 self._enforce_value_type(
                     values[field_name], field_type, context=f"{name}.{field_name}"
                 )
+            for provided_field in values:
+                if provided_field not in schema:
+                    raise LogosError(
+                        f"Canon Error: Undeclared field '{provided_field}' in write {name}."
+                    )
         obj.update(values)
         return obj
 
@@ -509,7 +520,15 @@ class LogosInterpreter(Interpreter[Any, Any]):
             "_"
         ):
             raise LogosError("Anathema: Attribute access forbidden on this spirit.")
-        return obj.get(name) if isinstance(obj, dict) else getattr(obj, name)
+        if isinstance(obj, dict):
+            if "__icon__" in obj and name not in obj:
+                raise LogosError(
+                    f"Canon Error: Icon '{obj['__icon__']}' has no attribute '{name}'."
+                )
+            return obj.get(name)
+        if not hasattr(obj, name):
+            raise LogosError(f"Anathema: Attribute '{name}' not found.")
+        return getattr(obj, name)
 
     def get_item(self, tree: Any) -> Any:
         obj = self.visit(tree.children[0])
