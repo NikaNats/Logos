@@ -1,6 +1,43 @@
 from typing import Any, Optional
 
 
+def unescape_string(raw_val: str) -> str:
+    """Robustly unescape string literals while preserving Unicode characters."""
+    escapes = {
+        'n': '\n',
+        'r': '\r',
+        't': '\t',
+        '\\': '\\',
+        '"': '"',
+        "'": "'",
+        'b': '\b',
+        'f': '\f',
+    }
+    result = []
+    i = 0
+    n = len(raw_val)
+    while i < n:
+        char = raw_val[i]
+        if char == '\\' and i + 1 < n:
+            next_char = raw_val[i+1]
+            if next_char in escapes:
+                result.append(escapes[next_char])
+                i += 2
+                continue
+            elif next_char == 'u' and i + 5 < n:
+                # Handle \uXXXX hex escapes
+                hex_val = raw_val[i+2:i+6]
+                try:
+                    result.append(chr(int(hex_val, 16)))
+                    i += 6
+                    continue
+                except ValueError:
+                    pass
+        result.append(char)
+        i += 1
+    return "".join(result)
+
+
 class TypeCanon:
     NUMERIC = {"HolyInt", "Int", "HolyFloat", "Float", "Double"}
     TEXT = {"Text", "String"}

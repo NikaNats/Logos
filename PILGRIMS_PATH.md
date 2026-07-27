@@ -164,7 +164,10 @@ Current runtime mappings (`FFIManager.get_ctype`):
 - `HolyInt`, `Int` -> `ctypes.c_longlong`
 - `Bool`, `Verily`, `Nay` -> `ctypes.c_bool`
 - `Text`, `String` -> `ctypes.c_char_p` (raw pointer boundary)
-- Unknown type names -> `ctypes.c_double` fallback
+
+Security note on types:
+
+- Declaring an unknown or unsupported FFI type name will strictly raise a `SecurityError` immediately, preventing unsafe implicit double fallbacks.
 
 Argument marshalling behavior:
 
@@ -236,7 +239,7 @@ Direct import:
 tradition "math.lg";
 ```
 
-- Exports are merged into current scope.
+- Exports are merged into current scope as protected ModuleFunction bindings, meaning they always execute in their native module interpreter context.
 - Name collisions can overwrite existing names.
 
 Alias import:

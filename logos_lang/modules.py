@@ -12,6 +12,22 @@ if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
 
 
+def _find_workspace_root(start_path: str) -> str:
+    """Recursively search upwards for workspace markers to define import boundaries."""
+    current = os.path.abspath(start_path)
+    while True:
+        if any(
+            os.path.exists(os.path.join(current, marker))
+            for marker in ("pyproject.toml", "README.md", ".git")
+        ):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            # Fallback to start_path if no workspace marker is found
+            return os.path.abspath(start_path)
+        current = parent
+
+
 class Module:
     def __init__(
         self,
@@ -69,13 +85,14 @@ class ModuleManager:
         abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
         resolved_path = os.path.normcase(os.path.realpath(abs_path))
 
-        root_base = os.path.normcase(
-            os.path.realpath(
-                parent_interp.base_path
-                if parent_interp and parent_interp.base_path
-                else os.getcwd()
-            )
+        # Dynamically determine the Workspace Root for tradition import containment
+        start_dir = (
+            parent_interp.base_path
+            if parent_interp and parent_interp.base_path
+            else base_dir
         )
+        root_base = os.path.normcase(os.path.realpath(_find_workspace_root(start_dir)))
+
         try:
             if os.path.commonpath([root_base, resolved_path]) != root_base:
                 raise SecurityError(
@@ -110,7 +127,7 @@ class ModuleManager:
             trusted_lsp_types = parent_interp.trusted_lsp_types if parent_interp else None
 
             child_interp = LogosInterpreter(
-                base_path=root_base,
+                base_path=parent_interp.base_path if parent_interp else os.path.dirname(resolved_path),
                 module_manager=self,
                 security=security,
                 io_handler=io_handler,

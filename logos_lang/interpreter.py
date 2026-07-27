@@ -564,9 +564,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
         return float(s) if "." in s else int(s)
 
     def string(self, tree: Any) -> str:
-        # Better string escaping logic
+        from .types import unescape_string
         raw_val = str(tree.children[0])[1:-1]
-        return raw_val.encode('utf-8').decode('unicode_escape')
+        return unescape_string(raw_val)
 
     def procession(self, tree: Any) -> List[Any]:
         return [self.visit(c) for c in tree.children]

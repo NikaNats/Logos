@@ -39,7 +39,7 @@ This means:
 ### 2.3 Literals
 
 - Number literal: decimal integer or decimal floating literal (for example: 12, 12.5)
-- String literal: double-quoted text on one line
+- String literal: double-quoted text supporting escape sequences (e.g., `\"` for embedded quotes, `\n` for newlines, `\t` for tabs, and `\uXXXX` for unicode points)
 - Boolean literals: Verily, Nay
 
 ### 2.4 Comments and Whitespace
@@ -129,7 +129,7 @@ Expr            = Equality ;
 Equality        = Comparison , { ("is" | "is" , "not") , Comparison } ;
 Comparison      = Sum , { ("<" | ">" | "<=" | ">=") , Sum } ;
 Sum             = Product , { ("+" | "-") , Product } ;
-Product         = Unary , { ("*" | "/") , Unary } ;
+Product         = Unary , { ("*" | "/" | "%") , Unary } ;
 Unary           = "-" , Unary
                 | "transfigure" , Expr , "into" , TypeName
                 | "supplicate" , Expr
@@ -169,7 +169,7 @@ From highest binding to lowest:
 1. Postfix access: . and []
 2. Named call: f(args)
 3. Unary: -, transfigure ... into ..., supplicate ...
-4. Multiplicative: * /
+4. Multiplicative: * / %
 5. Additive: + -
 6. Relational: < > <= >=
 7. Equality: is, is not
@@ -249,11 +249,12 @@ Implications:
 
 ## 6.4 Binary Operator Result Typing
 
-For +, -, *, /:
+For +, -, *, /, %:
 
 - Text + Text -> Text
 - Numeric op Numeric -> Numeric result
 - Division / over numeric operands -> HolyFloat
+- Modulo % over HolyInt operands -> HolyInt
 - For +, -, * over numeric operands:
   - if any operand is float-family -> HolyFloat
   - else -> HolyInt
@@ -270,38 +271,20 @@ For equality (is, is not):
 - Result type -> Bool
 - Equality is defined for all operand categories at language level.
 
-## 6.5 Icon Typing: Nominal Schema with Open Record Behavior
+## 6.5 Icon Typing: Nominal Schema with Closed Record Behavior
 
 Icon declarations introduce named schemas of typed fields.
-Construction by write IconName { ... } uses the selected icon schema.
+Construction by `write IconName { ... }` uses the selected icon schema.
 
 Construction-time guarantees:
 
-- For declared icon fields provided in the constructor, field values MUST satisfy declared field types.
-
-Open record behavior (current Dogma):
-
-- Omitted declared fields are allowed.
-- Additional undeclared fields are allowed.
+- All declared schema fields MUST be provided and satisfy declared types.
+- Rejects any undeclared extra fields (strict closed record behavior).
 
 Assignment-level behavior:
 
-- Variables declared with non-canonical type names (including icon names) accept Mystery-category runtime objects unless the implementation adds stronger nominal checks.
-
-This means icon use is nominal at schema-selection time, but not fully nominally enforced at every assignment in the current language behavior.
-
-## 6.6 Unknown and Mystery Fallback in Static/LSP Checking
-
-Static analysis may produce Unknown when expression type cannot be inferred.
-In current semantics:
-
-- If static type is inferable and incompatible with declaration, report a type error.
-- If static type is Unknown, checker MAY defer and avoid emitting mismatch solely from lack of information.
-
-Runtime behavior remains authoritative:
-
-- If runtime actual type is Mystery and declared type is canonical (numeric/text/bool/list/void), raise type mismatch.
-- If runtime actual type is Mystery and declared type is non-canonical (for example icon name), runtime accepts value under current fallback semantics.
+- Variables declared with non-canonical type names (including icon names) enforce strict nominal type matching.
+- Untyped Mystery actual values are incompatible with canonical declared types and checked Nominal Icon types.
 
 ## 7. Execution and Memory Model
 
@@ -310,7 +293,7 @@ Runtime behavior remains authoritative:
 Execution uses:
 
 - One global environment.
-- A stack of local frames for function invocation and nested execution contexts.
+- A stack of local frames for function invocation and block-scoped execution contexts (block statements push a local block frame).
 
 Lookup rule:
 
@@ -320,7 +303,7 @@ Lookup rule:
 
 Declaration rule (inscribe):
 
-- Declares in current local frame if one exists; otherwise in globals.
+- Declares in current local block frame if one exists; otherwise in globals.
 
 Assignment rule (amend):
 

@@ -146,12 +146,10 @@ class FFIManager:
         c_restype = self.get_ctype(ret_type)
         c_argtypes = [self.get_ctype(t) for t in arg_types]
 
-        if arg_types:
-            func_ptr = ctypes.cast(raw_func, ctypes.c_void_p).value
-            proto = ctypes.CFUNCTYPE(c_restype, *c_argtypes)
-            bound_func = proto(func_ptr)
-        else:
-            bound_func = raw_func
+        # Always wrap in an isolated CFUNCTYPE prototype to ensure return type is enforced correctly
+        func_ptr = ctypes.cast(raw_func, ctypes.c_void_p).value
+        proto = ctypes.CFUNCTYPE(c_restype, *c_argtypes)
+        bound_func = proto(func_ptr)
 
         return ForeignFunction(bound_func, c_restype, c_argtypes)
 

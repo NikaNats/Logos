@@ -130,8 +130,7 @@ Contract:
 
 Failure behavior:
 
-- On sandbox/path/IO failure, returns `0`.
-- Does not throw by contract for ordinary failure paths.
+- On path traversal violation, raises a `SecurityError`. On routine file-not-found failure, returns `0`.
 
 ## 2.7 close_scroll
 
@@ -157,7 +156,7 @@ Signature:
 Contract:
 
 - Writes `text`, then newline `"\n"`.
-- Returns result of newline write (`Verily` on success, `Nay` on failure).
+- Returns `Verily` only if both write operations succeed, otherwise returns `Nay`.
 
 Complexity:
 
@@ -261,7 +260,7 @@ Signature:
 
 Contract:
 
-- Computes `half = n / 2`, then checks `half * 2 is n`.
+- Computes if `n` is divisible by 2 using modulo `(n % 2) is 0` operation.
 - Intended for integer-style parity checks.
 
 Complexity:
@@ -540,10 +539,10 @@ Signature:
 Contract:
 
 - Resolves path under interpreter base path using realpath containment.
-- Blocks traversal and symlink escape outside base path.
+- Blocks traversal and symlink escape outside base path, raising a `SecurityError` immediately.
 - Opens in UTF-8 text mode.
 - Returns file descriptor >= 3 on success.
-- Returns `0` on failure.
+- Returns `0` on routine I/O failure.
 
 ### __sys_close
 
@@ -616,10 +615,11 @@ Contract:
 ## 7. Error and Vigil Interoperability Notes
 
 - Sentinel-return APIs:
-  - `__sys_open` returns `0` on failure.
+  - `__sys_open` returns `0` on routine failure.
   - `__sys_read` returns `""` on invalid descriptor.
   - `__sys_write` returns `Nay` on invalid descriptor.
 - Exceptional APIs:
+  - `__sys_open` raises a `SecurityError` on path traversal violations.
   - `__sys_exit` terminates process (`SystemExit`).
   - Numeric/string conversion errors in helper functions can raise host exceptions.
 

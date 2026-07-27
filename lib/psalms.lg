@@ -24,8 +24,8 @@ mystery concat_procession(list) {
 
     chant i < len {
         inscribe item = list[i];
-        inscribe res = res + item; // Polymorphic add
-        inscribe i = i + 1;
+        amend res = res + item; // CORRECT: uses amend to mutate outer res
+        amend i = i + 1;       // CORRECT: uses amend to mutate outer i
     } amen
     offer res;
 } amen
@@ -41,11 +41,11 @@ mystery contains(haystack, needle) {
     chant i < stop {
         inscribe sub = passage(haystack, i, n_len);
         discern (sub is needle) {
-            inscribe found = Verily;
+            amend found = Verily; // CORRECT: uses amend
             // Break loop manually by setting i to end
-            inscribe i = stop;
+            amend i = stop;       // CORRECT: uses amend
         } otherwise {
-            inscribe i = i + 1;
+            amend i = i + 1;      // CORRECT: uses amend
         } amen
     } amen
     offer found;

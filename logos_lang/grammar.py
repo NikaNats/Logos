@@ -78,7 +78,7 @@ LOGOS_GRAMMAR = r"""
     assign: NAME "=" expr
 
     NAME: /[a-zA-Z_]\w*/
-    STRING: /"[^"\n]*"/
+    STRING: /"([^"\\\n]|\\.)*"/
     NUMBER: /\d+(\.\d+)?/
 
     %import common.WS

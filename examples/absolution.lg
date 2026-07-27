@@ -7,7 +7,7 @@ mystery main() {
         aspect 0: proclaim "Already absolved.";
         aspect _: {
             proclaim "Absolving by setting value to 0.";
-            inscribe value = 0;
+            amend value = 0;
         }
     } amen
 

@@ -5,7 +5,7 @@ mystery main() {
     proclaim "Waiting until gold >= 100...";
 
     chant gold < 100 {
-        inscribe gold = gold + 25;
+        amend gold = gold + 25;
         proclaim gold;
     } amen
 

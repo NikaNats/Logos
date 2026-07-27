@@ -1,4 +1,4 @@
-# hesychasm.lg (Canonical)
+// hesychasm.lg (Canonical)
 
 mystery main() {
     proclaim "--- Hesychasm (Canonical) ---";
@@ -6,7 +6,7 @@ mystery main() {
     inscribe novices: HolyInt = 5;
     chant novices > 0 {
         proclaim novices;
-        inscribe novices = novices - 1;
+        amend novices = novices - 1;
     } amen
 
     proclaim "Silence.";

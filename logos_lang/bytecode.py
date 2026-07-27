@@ -49,6 +49,9 @@ class OpCode(Enum):
     JUMP_IF_FALSE = auto()
     HALT = auto()
 
+    PUSH_SCOPE = auto()
+    POP_SCOPE = auto()
+
 
 @dataclass
 class Instruction:
@@ -121,10 +124,12 @@ class BytecodeCompiler:
             return
 
         if rule == "block":
+            self._emit(OpCode.PUSH_SCOPE)
             for statement in node.children:
                 if not isinstance(statement, Tree):
                     raise BytecodeUnsupported("Invalid token in block.")
                 self._compile_statement(statement)
+            self._emit(OpCode.POP_SCOPE)
             return
 
         if rule == "discernment":
@@ -207,8 +212,9 @@ class BytecodeCompiler:
             return
 
         if rule == "string":
+            from .types import unescape_string
             raw = str(node.children[0]) if node.children else '""'
-            self._emit(OpCode.PUSH_CONST, raw[1:-1].replace("\\n", "\n"))
+            self._emit(OpCode.PUSH_CONST, unescape_string(raw[1:-1]))
             return
 
         if rule == "verily":
@@ -536,6 +542,16 @@ class BytecodeVM:
                 if not condition:
                     ip = cast(int, instruction.arg)
                     continue
+                ip += 1
+                continue
+
+            if opcode == OpCode.PUSH_SCOPE:
+                self._interpreter.scope.push_frame({})
+                ip += 1
+                continue
+
+            if opcode == OpCode.POP_SCOPE:
+                self._interpreter.scope.pop_frame()
                 ip += 1
                 continue
 

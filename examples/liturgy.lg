@@ -5,8 +5,8 @@ mystery main() -> Void {
     inscribe count: HolyInt = 0;
 
     chant count < 4 {
-        inscribe gold = gold + 25;
-        inscribe count = count + 1;
+        amend gold = gold + 25;
+        amend count = count + 1;
     } amen
 
     contemplate (gold >= 100) {

@@ -1,24 +1,21 @@
 mystery main() {
-    // 1. The Communion (Concatenation)
-    inscribe alpha : Text = "In the ";
-    inscribe omega : Text = "beginning...";
+    proclaim "--- Script (Canonical) ---";
 
-    // The '+' operator now works on Strings
-    inscribe scripture : Text = alpha + omega;
+    inscribe count: HolyInt = 1;
+    chant (count <= 3) {
+        proclaim "Iteration:";
+        proclaim count;
+        amend count = count + 1; // CORRECT
+    } amen
 
-    proclaim "Complete Text:";
-    proclaim scripture;
+    vigil {
+        inscribe raw: Text = "invalid_number";
+        inscribe secret: HolyInt = transfigure raw into HolyInt;
+        proclaim secret;
+    } confess sin {
+        proclaim "A hamartia occurred during transfiguration.";
+        proclaim sin;
+    } amen
 
-    // 2. The Measurement (Length)
-    inscribe size : HolyInt = measure(scripture);
-
-    proclaim "Length of Text:";
-    proclaim size;
-
-    // 3. The Passage (Substring)
-    // Extract "beginning"
-    inscribe word : Text = passage(scripture, 7, 9);
-
-    proclaim "Extracted Word:";
-    proclaim word;
+    proclaim "Liturgy complete. Amen.";
 } amen
