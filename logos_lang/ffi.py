@@ -82,8 +82,14 @@ class FFIManager:
             "Nay": ctypes.c_bool,
             "Text": ctypes.c_char_p,
             "String": ctypes.c_char_p,
+            "Void": None,
+            "None": None,
         }
-        return mapping.get(type_name, ctypes.c_double)
+        if type_name not in mapping:
+            raise SecurityError(
+                f"Security Violation: Unknown or unsupported FFI type '{type_name}'."
+            )
+        return mapping[type_name]
 
     def load_library(self, lib_name: str) -> str:
         if not self.security.allow_ffi:
@@ -133,15 +139,21 @@ class FFIManager:
         filename = self.load_library(lib_name)
         lib = self.libs[filename]
         try:
-            func = getattr(lib, func_name)
+            raw_func = getattr(lib, func_name)
         except AttributeError:
             raise LogosError(f"Schism: Symbol '{func_name}' not found in '{filename}'.")
 
         c_restype = self.get_ctype(ret_type)
         c_argtypes = [self.get_ctype(t) for t in arg_types]
-        func.restype = c_restype
-        func.argtypes = c_argtypes
-        return ForeignFunction(func, c_restype, c_argtypes)
+
+        if arg_types:
+            func_ptr = ctypes.cast(raw_func, ctypes.c_void_p).value
+            proto = ctypes.CFUNCTYPE(c_restype, *c_argtypes)
+            bound_func = proto(func_ptr)
+        else:
+            bound_func = raw_func
+
+        return ForeignFunction(bound_func, c_restype, c_argtypes)
 
     def marshal_args(self, args: List[Any], definition: ForeignFunction) -> List[Any]:
         c_args: List[Any] = []

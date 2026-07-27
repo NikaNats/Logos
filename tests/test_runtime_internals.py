@@ -64,7 +64,8 @@ class RuntimeInternalsTests(unittest.TestCase):
         ffi = self._make_ffi()
         self.assertIs(ffi.get_ctype("HolyInt"), ctypes.c_longlong)
         self.assertIs(ffi.get_ctype("Text"), ctypes.c_char_p)
-        self.assertIs(ffi.get_ctype("Unknown"), ctypes.c_double)
+        with self.assertRaises(logos_lang.SecurityError):
+            ffi.get_ctype("Unknown")
         self.assertIs(ffi.infer_ctype_from_value("x"), ctypes.c_char_p)
         self.assertIs(ffi.infer_ctype_from_value(True), ctypes.c_bool)
         self.assertIs(ffi.infer_ctype_from_value(1), ctypes.c_double)

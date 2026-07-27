@@ -1,3 +1,4 @@
+import ctypes
 import os
 import re
 import sys
@@ -368,10 +369,12 @@ class LogosInterpreter(Interpreter[Any, Any]):
                     "Declare explicit parameter types or enable inferred signatures explicitly."
                 )
             inferred_argtypes = [self.ffi.infer_ctype_from_value(a) for a in args]
-            func.func.argtypes = inferred_argtypes
-            inferred_def = ForeignFunction(func.func, func.restype, inferred_argtypes)
+            func_ptr = ctypes.cast(func.func, ctypes.c_void_p).value
+            proto = ctypes.CFUNCTYPE(func.restype, *inferred_argtypes)
+            isolated_call = proto(func_ptr)
+            inferred_def = ForeignFunction(isolated_call, func.restype, inferred_argtypes)
             c_args = self.ffi.marshal_args(args, inferred_def)
-            return func.func(*c_args)
+            return isolated_call(*c_args)
         c_args = self.ffi.marshal_args(args, func)
         return func.func(*c_args)
 
