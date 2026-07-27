@@ -45,6 +45,7 @@ LOGOS_GRAMMAR = r"""
     ?product: unary
             | product "*" unary -> mul
             | product "/" unary -> div
+            | product "%" unary -> mod
 
     ?unary: "-" unary                          -> neg
           | call

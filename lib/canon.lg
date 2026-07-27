@@ -26,10 +26,13 @@ mystery min(a: HolyInt, b: HolyInt) -> HolyInt {
 } amen
 
 mystery pow(base: HolyInt, exp: HolyInt) -> HolyInt {
-    contemplate (exp is 0) {
-        aspect Verily: offer 1;
-        aspect Nay:    offer base * pow(base, exp - 1);
+    inscribe res: HolyInt = 1;
+    inscribe i: HolyInt = 0;
+    chant i < exp {
+        amend res = res * base;
+        amend i = i + 1;
     } amen
+    offer res;
 } amen
 
 // ==========================================
@@ -45,10 +48,13 @@ mystery equals(s1: Text, s2: Text) -> Bool {
 } amen
 
 mystery chant(s: Text, count: HolyInt) -> Text {
-    contemplate (count <= 0) {
-        aspect Verily: offer "";
-        aspect Nay:    offer s + chant(s, count - 1);
+    inscribe res: Text = "";
+    inscribe i: HolyInt = 0;
+    chant i < count {
+        amend res = res + s;
+        amend i = i + 1;
     } amen
+    offer res;
 } amen
 
 // ==========================================

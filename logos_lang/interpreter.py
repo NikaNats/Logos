@@ -564,6 +564,10 @@ class LogosInterpreter(Interpreter[Any, Any]):
             if right_val == 0:
                 raise LogosError("Anathema: Division by zero.")
             return left_val / right_val
+        if op in ("mod", "%"):
+            if right_val == 0:
+                raise LogosError("Anathema: Division by zero in modulo.")
+            return left_val % right_val
         if op in ("lt", "<"):
             return bool(left_val < right_val)
         if op in ("gt", ">"):
@@ -585,6 +589,9 @@ class LogosInterpreter(Interpreter[Any, Any]):
 
     def div(self, t: Any) -> Any:
         return self._eval_binary_op("div", self.visit(t.children[0]), self.visit(t.children[1]))
+
+    def mod(self, t: Any) -> Any:
+        return self._eval_binary_op("mod", self.visit(t.children[0]), self.visit(t.children[1]))
 
     def lt(self, t: Any) -> Any:
         return self._eval_binary_op("lt", self.visit(t.children[0]), self.visit(t.children[1]))

@@ -56,12 +56,16 @@ class TypeCanon:
 
     @classmethod
     def resolve_binary_op(cls, op: str, left_t: str, right_t: str) -> Optional[str]:
-        if op in ("add", "sub", "mul", "div", "+", "-", "*", "/"):
+        if op in ("add", "sub", "mul", "div", "mod", "+", "-", "*", "/", "%"):
             if left_t in cls.TEXT and right_t in cls.TEXT and op in ("add", "+"):
                 return "Text"
             if left_t in cls.NUMERIC and right_t in cls.NUMERIC:
                 if op in ("div", "/"):
                     return "HolyFloat"
+                if op in ("mod", "%"):
+                    if left_t in ("HolyInt", "Int") and right_t in ("HolyInt", "Int"):
+                        return "HolyInt"
+                    return None
                 if "HolyFloat" in (left_t, right_t) or "Float" in (left_t, right_t) or "Double" in (left_t, right_t):
                     return "HolyFloat"
                 return "HolyInt"

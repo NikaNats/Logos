@@ -25,9 +25,7 @@ mystery min(a, b) {
 } amen
 
 mystery is_even(n) {
-    inscribe half = n / 2;
-    // Integer division truncation check
-    discern (half * 2 is n) {
+    discern ((n % 2) is 0) {
         offer Verily;
     } otherwise {
         offer Nay;
@@ -38,8 +36,8 @@ mystery power(base, exp) {
     inscribe res = 1;
     inscribe i = 0;
     chant i < exp {
-        inscribe res = res * base;
-        inscribe i = i + 1;
+        amend res = res * base;
+        amend i = i + 1;
     } amen
     offer res;
 } amen
@@ -52,8 +50,8 @@ mystery factorial(n) {
         inscribe res = 1;
         inscribe i = 2;
         chant i <= n {
-            inscribe res = res * i;
-            inscribe i = i + 1;
+            amend res = res * i;
+            amend i = i + 1;
         } amen
         offer res;
     } amen

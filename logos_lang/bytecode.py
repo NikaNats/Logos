@@ -30,6 +30,7 @@ class OpCode(Enum):
     SUB = auto()
     MUL = auto()
     DIV = auto()
+    MOD = auto()
     NEG = auto()
 
     EQ = auto()
@@ -224,7 +225,7 @@ class BytecodeCompiler:
             self._emit(OpCode.LOAD_VAR, str(node.children[0]))
             return
 
-        if rule in {"add", "sub", "mul", "div", "eq", "ne", "lt", "gt", "le", "ge"}:
+        if rule in {"add", "sub", "mul", "div", "mod", "eq", "ne", "lt", "gt", "le", "ge"}:
             self._compile_expr(self._require_tree_child(node, 0))
             self._compile_expr(self._require_tree_child(node, 1))
             op_map = {
@@ -232,6 +233,7 @@ class BytecodeCompiler:
                 "sub": OpCode.SUB,
                 "mul": OpCode.MUL,
                 "div": OpCode.DIV,
+                "mod": OpCode.MOD,
                 "eq": OpCode.EQ,
                 "ne": OpCode.NE,
                 "lt": OpCode.LT,
@@ -409,6 +411,20 @@ class BytecodeVM:
                 if right == 0:
                     raise LogosError("Anathema: Division by zero.")
                 stack.append(left / right)
+                ip += 1
+                continue
+
+            if opcode == OpCode.MOD:
+                right, left = self._pop2(stack, opcode)
+                left_t = TypeCanon.get_type_of_value(left)
+                right_t = TypeCanon.get_type_of_value(right)
+                if TypeCanon.resolve_binary_op("mod", left_t, right_t) is None:
+                    raise LogosError(
+                        f"Canon Error: Invalid operation 'mod' between types {left_t} and {right_t}."
+                    )
+                if right == 0:
+                    raise LogosError("Anathema: Division by zero in modulo.")
+                stack.append(left % right)
                 ip += 1
                 continue
 
