@@ -19,8 +19,8 @@ try:
         TEXT_DOCUMENT_DID_OPEN,
         Diagnostic,
         DiagnosticSeverity,
-        PublishDiagnosticsParams,
         Position,
+        PublishDiagnosticsParams,
         Range,
     )
 except Exception as e:

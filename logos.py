@@ -1,11 +1,14 @@
 """Logos entrypoint module exposing the public API and CLI."""
 
+from __future__ import annotations
+
 import argparse
 import ctypes
 import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from lark import Lark
 
@@ -60,7 +63,8 @@ __all__ = [
 ]
 
 
-def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
+def run_repl(interpreter: LogosInterpreter) -> None:  # pragma: no cover
+    """Launch the interactive Logos confessional (REPL)."""
     print("☩ Logos Interactive Confessional v2.0 ☩")
     print("☩ Type 'silence;' to pass, 'exit' to depart.")
     parser = Lark(LOGOS_GRAMMAR, parser="lalr", start="statement")
@@ -81,7 +85,8 @@ def run_repl(interpreter: LogosInterpreter):  # pragma: no cover
             interpreter.io.emit("Anathema:", str(e))
 
 
-def _load_trusted_lsp_types(path: str | None) -> dict[str, str]:
+def _load_trusted_lsp_types(path: str | Path | None) -> dict[str, str]:
+    """Load and validate type facts emitted by the Language Server Protocol."""
     if not path:
         return {}
 
@@ -89,30 +94,41 @@ def _load_trusted_lsp_types(path: str | None) -> dict[str, str]:
     if not file_path.exists():
         raise LogosError(f"LSP type-elision file not found: {file_path}")
 
-    payload = json.loads(file_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise LogosError(f"Invalid JSON in LSP type-elision file: {exc}") from exc
+
     if not isinstance(payload, dict):
         raise LogosError("LSP type-elision file must be a JSON object of {name: type}.")
 
-    out: dict[str, str] = {}
-    for key, value in payload.items():
-        if isinstance(key, str) and isinstance(value, str):
-            out[key] = value
-    return out
+    return {
+        key: value
+        for key, value in payload.items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
 
 
-def _default_bytecode_path(entry_path: str) -> str:
+def _default_bytecode_path(entry_path: str | Path) -> str:
+    """Generate the default bytecode artifact output path."""
     source = Path(entry_path)
     out_dir = source.parent / ".logos"
     out_dir.mkdir(parents=True, exist_ok=True)
     return str(out_dir / f"{source.stem}.bytecode.json")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Logos Liturgical Interpreter")
-    parser.add_argument("script", nargs="?", help="Path to the liturgy file")
-    parser.add_argument("--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings")
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="logos",
+        description="Logos Liturgical Programming Language Interpreter",
+    )
+    parser.add_argument("script", nargs="?", help="Path to the liturgy script (.lg)")
     parser.add_argument(
-        "--allow-lib", action="append", default=[], help="Whitelist library for FFI"
+        "--unsafe-ffi", action="store_true", help="Enable permissive FFI bindings"
+    )
+    parser.add_argument(
+        "--allow-lib", action="append", default=[], help="Whitelist specific library for FFI"
     )
     parser.add_argument(
         "--allow-unsafe-pointers",
@@ -123,7 +139,7 @@ def main():
         "--ffi-backend",
         choices=["ctypes", "rust", "wasm"],
         default="ctypes",
-        help="Select Apocrypha backend policy. Non-ctypes backends require external bridge integration.",
+        help="Select Apocrypha backend policy (default: ctypes).",
     )
     parser.add_argument(
         "--allow-inferred-ffi-signatures",
@@ -172,8 +188,11 @@ def main():
         default="",
         help="Path to WASI runtime module (.wasm) used when --execution-target wasi.",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def _configure_security(args: argparse.Namespace) -> SecurityContext:
+    """Build and configure the SecurityContext from CLI flags."""
     security = SecurityContext.permissive() if args.unsafe_ffi else SecurityContext.strict()
 
     if args.allow_lib:
@@ -191,7 +210,15 @@ def main():
     security.allow_inferred_ffi_signatures = args.allow_inferred_ffi_signatures
     security.require_os_sandbox_for_ffi = args.require_os_sandbox_for_ffi
     security.sandbox_attestation_env = args.sandbox_attestation_env
+    return security
 
+
+def main() -> None:
+    """Entrypoint for the Logos interpreter CLI."""
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+
+    security = _configure_security(args)
     trusted_lsp_types = _load_trusted_lsp_types(args.lsp_type_elision_file)
 
     interpreter = LogosInterpreter(
@@ -212,18 +239,19 @@ def main():
     interpreter._current_file = entry_path
 
     try:
-        with open(entry_path, "r", encoding="utf-8") as f:
-            source = f.read()
-        parser = Lark(LOGOS_GRAMMAR, parser="lalr")
-        tree = parser.parse(source)
+        source = Path(entry_path).read_text(encoding="utf-8")
+        lark_parser = Lark(LOGOS_GRAMMAR, parser="lalr")
+        tree = lark_parser.parse(source)
 
         bytecode_output_path = args.emit_bytecode or ""
-        compiled_program = None
+        compiled_program: Any = None
+
         if bytecode_output_path or args.execution_target == "wasi":
             compiled_program = interpreter.compile_bytecode(tree)
             if not bytecode_output_path:
                 bytecode_output_path = _default_bytecode_path(entry_path)
-            WasiExecutionBridge.emit_bytecode(compiled_program, bytecode_output_path)
+            if compiled_program is not None:
+                WasiExecutionBridge.emit_bytecode(compiled_program, bytecode_output_path)
 
         if args.execution_target == "wasi":
             if compiled_program is None:
@@ -237,17 +265,20 @@ def main():
             return
 
         interpreter.visit(tree)
+
         try:
             main_func = interpreter.scope.get("main")
         except LogosError:
             main_func = None
+
         if isinstance(main_func, UserFunction):
             interpreter._invoke_user_function(main_func, [])
-    except Exception as e:
+
+    except Exception as exc:
         try:
-            print(f"☨ FATAL ERROR ☨\n{e}")
+            print(f"☨ FATAL ERROR ☨\n{exc}")
         except UnicodeEncodeError:
-            print(f"FATAL ERROR\n{e}")
+            print(f"FATAL ERROR\n{exc}")
         sys.exit(1)
 
 

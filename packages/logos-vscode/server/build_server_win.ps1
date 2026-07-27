@@ -16,13 +16,10 @@ Write-Host "Dist dir:   $distDir"
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
 
-# Resolve dependencies from pyproject.toml and build with uv's managed env.
 Push-Location $repoRoot
 try {
   & $Uv sync --extra lsp --extra build | Out-Null
 
-  # Build a single-file executable.
-  # NOTE: On Windows, --add-data uses a semicolon (;) separator.
   & $Uv run pyinstaller `
     --onefile `
     --name logos-lang-server `
@@ -30,7 +27,6 @@ try {
     --workpath $workDir `
     --specpath $workDir `
     --clean `
-    --add-data (Join-Path $serverDir "logos.lark")+";." `
     (Join-Path $serverDir "lsp_server.py")
 }
 finally {
