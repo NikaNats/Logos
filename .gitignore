@@ -144,3 +144,5 @@ dmypy.json
 
 # Lint/format caches
 .ruff_cache/
+# Claude Code (personal overrides)
+.claude/settings.local.json
