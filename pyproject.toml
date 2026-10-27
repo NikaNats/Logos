@@ -73,6 +73,13 @@ pretty = true
 show_error_codes = true
 warn_unused_configs = true
 
+[tool.pyright]
+# Used by the editor / Claude Code LSP for navigation; mypy (strict) is the authoritative checker.
+venvPath = "."
+venv = ".venv"
+include = ["logos_lang", "logos.py", "packages/logos-vscode/server"]
+pythonVersion = "3.12"
+
 [tool.mutmut]
 paths_to_mutate = ["logos_lang/"]
 tests_dir = "tests/"
