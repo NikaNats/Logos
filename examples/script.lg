@@ -5,7 +5,7 @@ mystery main() {
     chant (count <= 3) {
         proclaim "Iteration:";
         proclaim count;
-        inscribe count = count + 1;
+        amend count = count + 1;
     } amen
 
     vigil {

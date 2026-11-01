@@ -392,6 +392,8 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 )
             inferred_argtypes = [self.ffi.infer_ctype_from_value(a) for a in args]
             func_ptr = ctypes.cast(func.func, ctypes.c_void_p).value
+            if func_ptr is None:
+                raise LogosError("Schism: Apocrypha symbol resolved to a null pointer.")
             proto = ctypes.CFUNCTYPE(func.restype, *inferred_argtypes)
             isolated_call = proto(func_ptr)
             inferred_def = ForeignFunction(isolated_call, func.restype, inferred_argtypes)

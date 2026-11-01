@@ -30,6 +30,8 @@ dev = [
   "mypy>=1.11.0",
   "mutmut>=3.3.1",
   "psutil>=7.0.0",
+  # The LSP test suites import the legacy pygls server unconditionally.
+  "pygls>=2.0.0",
   "pytest>=8.0.0",
   "ruff>=0.13.0",
 ]
@@ -68,7 +70,7 @@ indent-style = "space"
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["logos_lang"]
+files = ["logos_lang", "logos.py", "packages/logos-vscode/server/lsp_server.py"]
 pretty = true
 show_error_codes = true
 warn_unused_configs = true
