@@ -19,6 +19,9 @@ class SecurityContext:
     ffi_backend: FFI_BACKEND = FFI_BACKEND_CTYPES
     require_os_sandbox_for_ffi: bool = False
     sandbox_attestation_env: str = "LOGOS_OS_SANDBOX"
+    # Extra directories `tradition` imports may resolve into, beyond the program's own
+    # root and the bundled canon (`lib/`).
+    import_roots: List[str] = field(default_factory=list)
     denylisted_ffi_symbols: Set[str] = field(
         default_factory=lambda: {
             "system",

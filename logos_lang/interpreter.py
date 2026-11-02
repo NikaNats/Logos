@@ -97,6 +97,16 @@ class LogosInterpreter(Interpreter[Any, Any]):
                 exc.attach_location(meta.line, meta.column, self._current_file)
             raise
 
+    def close(self) -> None:
+        """Release host resources (open scroll descriptors) held by this interpreter."""
+        self.stdlib.close_all()
+
+    def __enter__(self) -> "LogosInterpreter":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
     # --- Scope helpers shared with the bytecode VM ---
 
     def _push_block_scope(self) -> None:
@@ -224,6 +234,10 @@ class LogosInterpreter(Interpreter[Any, Any]):
         try_blk, err_var, catch_blk = tree.children
         try:
             return self.visit(try_blk)
+        except SecurityError:
+            # Sandbox violations are terminal: scripts must not be able to catch and
+            # probe policy boundaries.
+            raise
         except Exception as e:
             self.scope.set(str(err_var), str(e))
             return self.visit(catch_blk)
@@ -499,11 +513,12 @@ class LogosInterpreter(Interpreter[Any, Any]):
         elif rule == "mut_attr":
             container = self._evaluate_mutable_target(node.children[0])
             name = str(node.children[1])
-            if isinstance(container, dict):
-                self._enforce_icon_field_type(container, name, value)
-                container[name] = value
-            else:
-                setattr(container, name, value)
+            # Only Logos aggregates (icons, module aliases) are mutable; host objects never
+            # are, and underscore names (e.g. the `__icon__` nominal tag) are reserved.
+            if not isinstance(container, dict) or name.startswith("_"):
+                raise LogosError("Anathema: Attribute mutation forbidden on this spirit.")
+            self._enforce_icon_field_type(container, name, value)
+            container[name] = value
         elif rule == "mut_item":
             container = self._evaluate_mutable_target(node.children[0])
             idx = self.visit(node.children[1])
@@ -570,11 +585,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
             return self.scope.get(str(node.children[0]))
         if rule == "mut_attr":
             obj = self._evaluate_mutable_target(node.children[0])
-            return (
-                obj.get(str(node.children[1]))
-                if isinstance(obj, dict)
-                else getattr(obj, str(node.children[1]))
-            )
+            return self._read_attr(obj, str(node.children[1]))
         if rule == "mut_item":
             obj = self._evaluate_mutable_target(node.children[0])
             idx = self.visit(node.children[1])
@@ -582,8 +593,11 @@ class LogosInterpreter(Interpreter[Any, Any]):
         return self.visit(node)
 
     def get_attr(self, tree: Any) -> Any:
-        obj = self.visit(tree.children[0])
-        name = str(tree.children[1])
+        return self._read_attr(self.visit(tree.children[0]), str(tree.children[1]))
+
+    @staticmethod
+    def _read_attr(obj: Any, name: str) -> Any:
+        """Guarded attribute read shared by expression access and mutation targets."""
         if isinstance(obj, (ModuleFunction, ScopeManager, LogosInterpreter)) or name.startswith(
             "_"
         ):

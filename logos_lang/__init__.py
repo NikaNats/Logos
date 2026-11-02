@@ -1,5 +1,5 @@
 from .bytecode import BytecodeCompiler, BytecodeProgram, BytecodeUnsupported, BytecodeVM
-from .exceptions import LogosError, SecurityError
+from .exceptions import LogosError, LogosExit, SecurityError
 from .ffi import FFIManager
 from .grammar import LOGOS_GRAMMAR, create_parser
 from .interfaces import ConsoleIO, IOHandler
@@ -27,6 +27,7 @@ __all__ = [
     "BytecodeCompiler",
     "BytecodeVM",
     "LogosError",
+    "LogosExit",
     "SecurityError",
     "IOHandler",
     "ConsoleIO",

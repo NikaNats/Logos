@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .exceptions import LogosError, SecurityError
 from .grammar import create_parser
@@ -10,20 +10,26 @@ if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
 
 
-def _find_workspace_root(start_path: str) -> str:
-    """Recursively search upwards for workspace markers to define import boundaries."""
-    current = os.path.abspath(start_path)
-    while True:
-        if any(
-            os.path.exists(os.path.join(current, marker))
-            for marker in ("pyproject.toml", "README.md", ".git")
-        ):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            # Fallback to start_path if no workspace marker is found
-            return os.path.abspath(start_path)
-        current = parent
+# The bundled canon (`lib/*.lg`) ships next to the package, both in a source checkout and
+# in the wheel (hatch installs `lib` as a sibling of `logos_lang`).
+BUNDLED_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+
+
+def _import_roots(
+    parent_interp: Optional["LogosInterpreter"], base_dir: str, security: SecurityContext
+) -> List[str]:
+    """Directories a `tradition` may resolve into: the program root, the bundled canon,
+    and any roots granted explicitly via ``SecurityContext.import_roots``."""
+    program_root = parent_interp.base_path if parent_interp and parent_interp.base_path else base_dir
+    roots = [program_root, BUNDLED_LIB_DIR, *security.import_roots]
+    return [os.path.normcase(os.path.realpath(r)) for r in roots]
+
+
+def _is_within(root: str, path: str) -> bool:
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:  # different drives on Windows
+        return False
 
 
 class Module:
@@ -88,20 +94,8 @@ class ModuleManager:
         security = self.security or (
             parent_interp.security if parent_interp else SecurityContext.strict()
         )
-        # Dynamically determine the Workspace Root for tradition import containment
-        start_dir = (
-            parent_interp.base_path
-            if parent_interp and parent_interp.base_path
-            else base_dir
-        )
-        root_base = os.path.normcase(os.path.realpath(_find_workspace_root(start_dir)))
-
-        try:
-            if os.path.commonpath([root_base, resolved_path]) != root_base:
-                raise SecurityError(
-                    f"Security Violation: Tradition path traversal blocked for '{rel_path}'."
-                )
-        except ValueError:
+        roots = _import_roots(parent_interp, base_dir, security)
+        if not any(_is_within(root, resolved_path) for root in roots):
             raise SecurityError(
                 f"Security Violation: Tradition path traversal blocked for '{rel_path}'."
             )
