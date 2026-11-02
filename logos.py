@@ -33,6 +33,7 @@ from logos_lang import (
     UserFunction,
     WasiArtifact,
     WasiExecutionBridge,
+    create_parser,
 )
 
 __all__ = [
@@ -67,7 +68,7 @@ def run_repl(interpreter: LogosInterpreter) -> None:  # pragma: no cover
     """Launch the interactive Logos confessional (REPL)."""
     print("☩ Logos Interactive Confessional v2.0 ☩")
     print("☩ Type 'silence;' to pass, 'exit' to depart.")
-    parser = Lark(LOGOS_GRAMMAR, parser="lalr", start="statement")
+    parser = create_parser(start="statement")
     while True:
         try:
             text = interpreter.io.read_input(">> ").strip()
@@ -81,7 +82,7 @@ def run_repl(interpreter: LogosInterpreter) -> None:  # pragma: no cover
                 result = result.value
             if result is not None:
                 interpreter.io.emit("=>", str(result))
-        except (LogosError, Exception) as e:
+        except Exception as e:
             interpreter.io.emit("Anathema:", str(e))
 
 
@@ -213,6 +214,22 @@ def _configure_security(args: argparse.Namespace) -> SecurityContext:
     return security
 
 
+def _display_path(path: str | None) -> str | None:
+    """Show a source path relative to the working directory when possible."""
+    if not path:
+        return None
+    try:
+        return os.path.relpath(path)
+    except ValueError:  # different drive on Windows
+        return os.path.basename(path)
+
+
+def _format_fatal(exc: BaseException) -> str:
+    if isinstance(exc, LogosError):
+        return exc.describe(_display_path(exc.source_file))
+    return str(exc)
+
+
 def main() -> None:
     """Entrypoint for the Logos interpreter CLI."""
     parser = _build_arg_parser()
@@ -240,8 +257,7 @@ def main() -> None:
 
     try:
         source = Path(entry_path).read_text(encoding="utf-8")
-        lark_parser = Lark(LOGOS_GRAMMAR, parser="lalr")
-        tree = lark_parser.parse(source)
+        tree = create_parser().parse(source)
 
         bytecode_output_path = args.emit_bytecode or ""
         compiled_program: Any = None
@@ -275,10 +291,11 @@ def main() -> None:
             interpreter._invoke_user_function(main_func, [])
 
     except Exception as exc:
+        message = _format_fatal(exc)
         try:
-            print(f"☨ FATAL ERROR ☨\n{exc}")
+            print(f"☨ FATAL ERROR ☨\n{message}")
         except UnicodeEncodeError:
-            print(f"FATAL ERROR\n{exc}")
+            print(f"FATAL ERROR\n{message}")
         sys.exit(1)
 
 

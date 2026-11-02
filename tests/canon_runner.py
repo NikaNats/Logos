@@ -10,8 +10,6 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
-from lark import Lark
-
 # --- CHANGED: Import from the library, not the script ---
 import logos_lang
 
@@ -49,7 +47,7 @@ def _run_fixture(
         security=security or logos_lang.SecurityContext.strict(),
     )
     interpreter._current_file = str(fixture_path)
-    parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
+    parser = logos_lang.create_parser()
 
     buf = StringIO()
     err: Exception | None = None

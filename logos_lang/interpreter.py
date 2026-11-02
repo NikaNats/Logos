@@ -80,13 +80,32 @@ class LogosInterpreter(Interpreter[Any, Any]):
             self._prepare_static_type_elision(tree)
             try:
                 return self._execute_start_tree(tree)
-            except (LogosError, SecurityError):
+            except (LogosError, SecurityError) as exc:
+                exc.attach_location(None, None, self._current_file)
                 raise
             except Exception as exc:
                 raise LogosError(
-                    f"Anathema: Unhandled host exception was trapped: {type(exc).__name__}: {exc}"
+                    f"Anathema: Unhandled host exception was trapped: {type(exc).__name__}: {exc}",
+                    source_file=self._current_file,
                 ) from exc
-        return super().visit(tree)
+        try:
+            return super().visit(tree)
+        except LogosError as exc:
+            # Innermost node with a position wins; outer frames leave it untouched.
+            meta = getattr(tree, "meta", None)
+            if meta is not None and not getattr(meta, "empty", True):
+                exc.attach_location(meta.line, meta.column, self._current_file)
+            raise
+
+    # --- Scope helpers shared with the bytecode VM ---
+
+    def _push_block_scope(self) -> None:
+        self.scope.push_frame({})
+        self._type_stack.append({})
+
+    def _pop_block_scope(self) -> None:
+        self._type_stack.pop()
+        self.scope.pop_frame()
 
     def _execute_start_tree(self, tree: Tree[Any]) -> Any:
         engine = self.execution_engine
@@ -133,9 +152,11 @@ class LogosInterpreter(Interpreter[Any, Any]):
     # --- Root Statements ---
 
     def proclaim(self, tree: Any) -> None:
-        val = self.visit(tree.children[0])
-        prefix = "Verily" if val is True else "Nay" if val is False else str(val)
-        self._emit("☩", prefix)
+        self._emit("☩", self._format_value(self.visit(tree.children[0])))
+
+    @staticmethod
+    def _format_value(val: Any) -> str:
+        return "Verily" if val is True else "Nay" if val is False else str(val)
 
     def _emit(self, symbol: str, message: str) -> None:
         try:
@@ -143,8 +164,10 @@ class LogosInterpreter(Interpreter[Any, Any]):
         except Exception:
             try:
                 _resolve_print()(f"{symbol} {message}")
-            except Exception:
-                pass
+            except Exception as exc:
+                raise LogosError(
+                    f"Anathema: Could not proclaim output: {type(exc).__name__}: {exc}"
+                ) from exc
 
     def inscribe(self, tree: Any) -> Any:
         name = str(tree.children[0])
@@ -168,8 +191,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
     # --- Flow Control ---
 
     def block(self, tree: Any) -> Any:
-        self.scope.push_frame({})
-        self._type_stack.append({})
+        self._push_block_scope()
         try:
             result = None
             for stmt in tree.children:
@@ -178,8 +200,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
                     return result
             return result
         finally:
-            self._type_stack.pop()
-            self.scope.pop_frame()
+            self._pop_block_scope()
 
     def discernment(self, tree: Any) -> Any:
         cond_val = self.visit(tree.children[0])
@@ -295,16 +316,14 @@ class LogosInterpreter(Interpreter[Any, Any]):
         func_name = str(tree.children[0])
         args_node = tree.children[1] if len(tree.children) > 1 else None
         args = [self.visit(c) for c in args_node.children] if args_node else []
+        return self._call_by_name(func_name, args)
+
+    def _call_by_name(self, func_name: str, args: List[Any]) -> Any:
+        """Single call path for both engines (the VM's CALL opcode delegates here)."""
         spirit = self.scope.get(func_name)
 
         if isinstance(spirit, ModuleFunction):
-            res = spirit.interpreter._invoke_user_function(spirit.func, args)
-            mod = spirit.interpreter.module_manager._modules.get(
-                spirit.interpreter._current_file
-            )
-            if mod:
-                mod.sync_exports()
-            return res
+            return self._invoke_module_function(spirit, args)
 
         if self._recursion_depth > self._max_recursion:
             raise LogosError("Pride: Recursion depth exceeded.")
@@ -322,6 +341,29 @@ class LogosInterpreter(Interpreter[Any, Any]):
             raise LogosError("Pride: Host recursion limit reached.") from e
         finally:
             self._recursion_depth -= 1
+
+    @staticmethod
+    def _invoke_module_function(spirit: ModuleFunction, args: List[Any]) -> Any:
+        """Run a function in its defining module and keep exports and module globals in sync.
+
+        Before the call, values written through an alias (``amend Mod.x = ...``) are pushed
+        into the module's globals; afterwards, the module's globals are published back to
+        its exports. Functions that the module re-exports from *other* modules keep their
+        own owning interpreter.
+        """
+        owner = spirit.interpreter
+        incoming = {
+            k: (v.func if isinstance(v, ModuleFunction) and v.interpreter is owner else v)
+            for k, v in spirit.exports.items()
+            if k != "__icon__"
+        }
+        owner.scope.globals.update(incoming)
+        module = owner.module_manager._modules.get(owner._current_file)
+        try:
+            return owner._invoke_user_function(spirit.func, args)
+        finally:
+            if module is not None:
+                module.sync_exports()
 
     def _invoke_user_function(self, func: UserFunction, args: List[Any]) -> Any:
         current_func = func
@@ -422,7 +464,8 @@ class LogosInterpreter(Interpreter[Any, Any]):
         obj = {"__icon__": name}
         values = dict(assigns)
         schema = self._icons.get(name)
-        if schema:
+        # `is not None`: an empty schema (`icon Empty {} amen`) is still a closed record.
+        if schema is not None:
             for field_name, field_type in schema.items():
                 if field_name not in values:
                     raise LogosError(
@@ -499,10 +542,17 @@ class LogosInterpreter(Interpreter[Any, Any]):
         self, container: Dict[str, Any], field_name: str, value: Any
     ) -> None:
         icon_name = container.get("__icon__")
-        if icon_name:
-            schema = self._icons.get(str(icon_name))
-            if schema and (field_type := schema.get(field_name)):
-                self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
+        if not icon_name:
+            return
+        schema = self._icons.get(str(icon_name))
+        if schema is None:
+            return
+        field_type = schema.get(field_name)
+        if field_type is None:
+            raise LogosError(
+                f"Canon Error: Icon '{icon_name}' has no field '{field_name}' (closed record)."
+            )
+        self._enforce_value_type(value, field_type, context=f"{icon_name}.{field_name}")
 
     def _enforce_value_type(self, value: Any, type_name: str, context: str) -> None:
         if type_name not in TypeCanon.KNOWN_DECL and type_name not in self._icons:
@@ -652,10 +702,10 @@ class LogosInterpreter(Interpreter[Any, Any]):
         return -val
 
     def eq(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) == self.visit(t.children[1]))
+        return TypeCanon.values_equal(self.visit(t.children[0]), self.visit(t.children[1]))
 
     def ne(self, t: Any) -> bool:
-        return bool(self.visit(t.children[0]) != self.visit(t.children[1]))
+        return not TypeCanon.values_equal(self.visit(t.children[0]), self.visit(t.children[1]))
 
     def transfigure(self, tree: Any) -> Any:
         val = self.visit(tree.children[0])
@@ -690,7 +740,7 @@ class LogosInterpreter(Interpreter[Any, Any]):
         target = self.visit(tree.children[0])
         for case in tree.children[1:]:
             pattern = self.visit(case.children[0])
-            if pattern is WILDCARD_SENTINEL or target == pattern:
+            if pattern is WILDCARD_SENTINEL or TypeCanon.values_equal(target, pattern):
                 return self.visit(case.children[1])
         return None
 

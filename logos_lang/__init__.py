@@ -1,7 +1,7 @@
 from .bytecode import BytecodeCompiler, BytecodeProgram, BytecodeUnsupported, BytecodeVM
 from .exceptions import LogosError, SecurityError
 from .ffi import FFIManager
-from .grammar import LOGOS_GRAMMAR
+from .grammar import LOGOS_GRAMMAR, create_parser
 from .interfaces import ConsoleIO, IOHandler
 from .interpreter import LogosInterpreter
 from .models import (
@@ -21,6 +21,7 @@ from .wasi import WasiArtifact, WasiExecutionBridge
 
 __all__ = [
     "LOGOS_GRAMMAR",
+    "create_parser",
     "BytecodeUnsupported",
     "BytecodeProgram",
     "BytecodeCompiler",
