@@ -18,6 +18,10 @@
                 {
                     "name": "comment.line.double-slash.logos",
                     "match": "//.*$"
+                },
+                {
+                    "name": "comment.line.number-sign.logos",
+                    "match": "#.*$"
                 }
             ]
         },
@@ -44,11 +48,15 @@
                 },
                 {
                     "name": "keyword.other.statement.logos",
-                    "match": "\\b(proclaim|inscribe|amend|offer|apocrypha|tradition|transfigure|into|supplicate|write)\\b"
+                    "match": "\\b(proclaim|inscribe|amend|offer|apocrypha|tradition|as|transfigure|into|supplicate|write)\\b"
                 },
                 {
                     "name": "storage.type.logos",
                     "match": "\\b(mystery|icon)\\b"
+                },
+                {
+                    "name": "keyword.operator.word.logos",
+                    "match": "\\b(is|not)\\b"
                 }
             ]
         },
@@ -72,7 +80,7 @@
             "patterns": [
                 {
                     "name": "support.type.logos",
-                    "match": "\\b(HolyInt|HolyFloat|Text|String|Bool|Procession)\\b"
+                    "match": "\\b(HolyInt|Int|HolyFloat|Float|Double|Text|String|Bool|Procession|Mystery)\\b"
                 },
                 {
                     "name": "support.function.builtin.logos",
