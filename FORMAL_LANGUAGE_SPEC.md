@@ -270,6 +270,10 @@ For equality (is, is not):
 
 - Result type -> Bool
 - Equality is defined for all operand categories at language level.
+- Bool values are only equal to Bool values: `1 is Verily` and `0 is Nay` are `Nay`.
+  Numeric operands compare by value across the numeric family (`1 is 1.0` is `Verily`).
+  Processions and icons compare element-wise under the same rule.
+- `contemplate` patterns match using this same equality.
 
 ## 6.5 Icon Typing: Nominal Schema with Closed Record Behavior
 
@@ -331,6 +335,10 @@ Consequences:
 - Procession index mutation updates the underlying list object.
 - Icon attribute mutation updates the underlying object map.
 - Icon field-type checks apply when mutating declared fields of recognized icon instances.
+- Mutating an undeclared field of a recognized icon instance is rejected (closed record),
+  including for icons with an empty schema.
+- Underscore-prefixed attributes (e.g. the nominal `__icon__` tag) and attributes of
+  non-Logos (host) values are never mutable.
 
 ## 7.4 Tail Call Optimization (TCO) Trampoline
 
@@ -352,6 +360,16 @@ Non-guarantees:
 - Non-tail recursive calls are not trampoline-optimized.
 - Implementations may enforce safety limits on trampoline hops.
 - External effects (FFI, host I/O timing, floating-point host behavior) can affect observable behavior outside pure expression semantics.
+
+## 7.5 Fault Handling (vigil / confess)
+
+- `vigil B1 confess e B2` executes B1; if a runtime fault occurs, binds its message text to
+  `e` and executes B2.
+- Security violations (sandbox, import containment, FFI policy) are terminal and are never
+  intercepted by `vigil`.
+- Program halts (`depart` / `__sys_exit`) are not faults and are never intercepted.
+- Runtime faults carry the source file, line and column of the innermost failing construct
+  when known.
 
 ## 8. Implementation Notes (Informative)
 
