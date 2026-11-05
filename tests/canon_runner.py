@@ -8,8 +8,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-
-from lark import Lark
+from unittest import mock
 
 # --- CHANGED: Import from the library, not the script ---
 import logos_lang
@@ -34,17 +33,21 @@ def _execute_fixture(
     if not fixture_path.exists():
         raise FileNotFoundError(f"Missing fixture: {fixture_path}")
 
-    if env:
-        for k, v in env.items():
-            os.environ[str(k)] = str(v)
+    # patch.dict restores os.environ afterwards, so overrides never leak into other tests.
+    with mock.patch.dict(os.environ, {str(k): str(v) for k, v in (env or {}).items()}):
+        return _run_fixture(fixture_path, security)
 
+
+def _run_fixture(
+    fixture_path: Path, security: logos_lang.SecurityContext | None
+) -> _ExecResult:
     # Use ROOT as base_path so fixtures can load lib/*.lg traditions safely
     interpreter = logos_lang.LogosInterpreter(
         base_path=str(ROOT),
         security=security or logos_lang.SecurityContext.strict(),
     )
     interpreter._current_file = str(fixture_path)
-    parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
+    parser = logos_lang.create_parser()
 
     buf = StringIO()
     err: Exception | None = None
@@ -62,6 +65,8 @@ def _execute_fixture(
                 interpreter._invoke_user_function(main_func, [])
         except Exception as e:
             err = e
+        finally:
+            interpreter.close()
 
     return _ExecResult(stdout=buf.getvalue(), error=err)
 
@@ -197,6 +202,8 @@ class CanonTests(unittest.TestCase):
         _assert_value_line(self, r.stdout, "0")
 
     def test_sys_read_write_roundtrip(self) -> None:
+        # The fixture writes relative to base_path (ROOT); never leave the artifact behind.
+        self.addCleanup((ROOT / "canon_io.tmp").unlink, missing_ok=True)
         r = _execute_fixture("sys_read_write_roundtrip.lg")
         self.assertIsNone(r.error)
         self.assertIn("hello", r.stdout)

@@ -1,3 +1,5 @@
+from lark import Lark
+
 LOGOS_GRAMMAR = r"""
     start: statement*
 
@@ -86,3 +88,10 @@ LOGOS_GRAMMAR = r"""
     %ignore /#.*/
     %ignore /\/\/.*/
 """
+
+def create_parser(start: str = "start") -> Lark:
+    """Build the canonical LALR parser.
+
+    ``propagate_positions`` is required so runtime errors can report line/column.
+    """
+    return Lark(LOGOS_GRAMMAR, parser="lalr", start=start, propagate_positions=True)

@@ -8,10 +8,10 @@ description: Write or extend tests for the Logos runtime — regression tests wi
 ## House style (match it)
 
 - `unittest.TestCase` classes, collected by pytest. No `conftest.py`, no pytest fixtures, no new test dependencies — Hypothesis, psutil and pytest are already in the `dev` group.
-- Parse with `Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")`; construct `logos_lang.LogosInterpreter(...)` directly; capture output with `contextlib.redirect_stdout(io.StringIO())` (default `ConsoleIO` prints).
+- Parse with `logos_lang.create_parser()` (keeps source positions); construct `logos_lang.LogosInterpreter(...)` directly; capture output with `contextlib.redirect_stdout(io.StringIO())` (default `ConsoleIO` prints).
 - Program-level regressions go in `tests/fixtures/*.lg` (security cases in `tests/fixtures/security/`) and run through `_execute_fixture` in `tests/canon_runner.py`, which also invokes `main` like the CLI does.
 - Assert errors as `logos_lang.LogosError` / `SecurityError`, and assert on message text when the failure mode is new.
-- Run: `uv run pytest -q tests/<file>.py::<Class>::<test>`; full suite `uv run --extra lsp pytest -q`.
+- Run: `uv run pytest -q tests/<file>.py::<Class>::<test>`; full suite `uv run pytest -q`.
 
 ## Engine parity is the main correctness risk
 

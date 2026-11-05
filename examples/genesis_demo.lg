@@ -8,7 +8,7 @@ mystery main() {
 
     inscribe start_time : HolyInt = now();
 
-    inscribe log : Scroll = open_scroll("genesis_demo.log", 1);
+    inscribe log : HolyInt = open_scroll("genesis_demo.log", 1);
 
     inscribe ok : Bool = write_line(log, "Matins mystery performed by " + user);
     proclaim "Write success:";

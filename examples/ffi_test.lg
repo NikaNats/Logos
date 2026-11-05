@@ -1,3 +1,4 @@
+# Run with: python logos.py examples/ffi_test.lg --unsafe-ffi --allow-inferred-ffi-signatures
 # Calling the apocrypha nations (ctypes FFI)
 # Windows: "msvcrt". Linux/macOS: likely "m".
 

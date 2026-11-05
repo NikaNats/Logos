@@ -91,6 +91,7 @@ Practical rule:
 ### 1.3 Using `vigil` and `confess` safely
 
 `vigil` catches runtime faults and binds the message text to the variable named after `confess`.
+Sandbox violations (`SecurityError`) and `depart` are deliberately *not* catchable.
 
 ```logos
 vigil {
@@ -230,6 +231,11 @@ python logos.py programs/main.lg \
 `tradition "..."` is resolved relative to the importing file, not global process CWD.
 
 This means imports remain stable when launching from different directories.
+
+Imports may only resolve inside the entry script's directory, the bundled canon (`lib/`),
+or directories granted with `--import-root DIR` (`SecurityContext.import_roots`).
+Anything else raises a `SecurityError`. A cyclic import receives the partially loaded
+module; its exports become visible once the cycle finishes loading.
 
 ### 3.2 Direct import vs alias import
 

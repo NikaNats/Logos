@@ -92,6 +92,27 @@ class TypeCanon:
         return False
 
     @classmethod
+    def values_equal(cls, left: Any, right: Any) -> bool:
+        """Language-level ``is``: defined for all operands, but never equates Bool with numbers.
+
+        Python's ``bool`` subclasses ``int`` (``True == 1``), so plain ``==`` would make
+        ``1 is Verily`` true. Aggregates compare element-wise with the same rule.
+        """
+        left_is_bool = isinstance(left, bool)
+        right_is_bool = isinstance(right, bool)
+        if left_is_bool or right_is_bool:
+            return left_is_bool and right_is_bool and left is right
+        if isinstance(left, list) and isinstance(right, list):
+            return len(left) == len(right) and all(
+                cls.values_equal(a, b) for a, b in zip(left, right)
+            )
+        if isinstance(left, dict) and isinstance(right, dict):
+            return left.keys() == right.keys() and all(
+                cls.values_equal(left[k], right[k]) for k in left
+            )
+        return bool(left == right)
+
+    @classmethod
     def resolve_binary_op(cls, op: str, left_t: str, right_t: str) -> Optional[str]:
         if op in ("add", "sub", "mul", "div", "mod", "+", "-", "*", "/", "%"):
             if left_t in cls.TEXT and right_t in cls.TEXT and op in ("add", "+"):

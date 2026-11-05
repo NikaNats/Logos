@@ -1,31 +1,35 @@
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Dict, Optional, Set
-
-from lark import Lark
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .exceptions import LogosError, SecurityError
-from .grammar import LOGOS_GRAMMAR
+from .grammar import create_parser
 from .models import ModuleFunction, SecurityContext, UserFunction
 
 if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
 
 
-def _find_workspace_root(start_path: str) -> str:
-    """Recursively search upwards for workspace markers to define import boundaries."""
-    current = os.path.abspath(start_path)
-    while True:
-        if any(
-            os.path.exists(os.path.join(current, marker))
-            for marker in ("pyproject.toml", "README.md", ".git")
-        ):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            # Fallback to start_path if no workspace marker is found
-            return os.path.abspath(start_path)
-        current = parent
+# The bundled canon (`lib/*.lg`) ships next to the package, both in a source checkout and
+# in the wheel (hatch installs `lib` as a sibling of `logos_lang`).
+BUNDLED_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+
+
+def _import_roots(
+    parent_interp: Optional["LogosInterpreter"], base_dir: str, security: SecurityContext
+) -> List[str]:
+    """Directories a `tradition` may resolve into: the program root, the bundled canon,
+    and any roots granted explicitly via ``SecurityContext.import_roots``."""
+    program_root = parent_interp.base_path if parent_interp and parent_interp.base_path else base_dir
+    roots = [program_root, BUNDLED_LIB_DIR, *security.import_roots]
+    return [os.path.normcase(os.path.realpath(r)) for r in roots]
+
+
+def _is_within(root: str, path: str) -> bool:
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:  # different drives on Windows
+        return False
 
 
 class Module:
@@ -69,7 +73,9 @@ class Module:
 class ModuleManager:
     def __init__(self) -> None:
         self._modules: Dict[str, Module] = {}
-        self._loading: Set[str] = set()
+        # Modules currently executing. A cyclic import receives this same (still filling)
+        # Module object, so its exports become visible once the cycle unwinds.
+        self._loading: Dict[str, Module] = {}
         self.security: Optional[SecurityContext] = None
 
     def load_module(
@@ -85,20 +91,11 @@ class ModuleManager:
         abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
         resolved_path = os.path.normcase(os.path.realpath(abs_path))
 
-        # Dynamically determine the Workspace Root for tradition import containment
-        start_dir = (
-            parent_interp.base_path
-            if parent_interp and parent_interp.base_path
-            else base_dir
+        security = self.security or (
+            parent_interp.security if parent_interp else SecurityContext.strict()
         )
-        root_base = os.path.normcase(os.path.realpath(_find_workspace_root(start_dir)))
-
-        try:
-            if os.path.commonpath([root_base, resolved_path]) != root_base:
-                raise SecurityError(
-                    f"Security Violation: Tradition path traversal blocked for '{rel_path}'."
-                )
-        except ValueError:
+        roots = _import_roots(parent_interp, base_dir, security)
+        if not any(_is_within(root, resolved_path) for root in roots):
             raise SecurityError(
                 f"Security Violation: Tradition path traversal blocked for '{rel_path}'."
             )
@@ -107,18 +104,16 @@ class ModuleManager:
             return self._modules[resolved_path]
         if resolved_path in self._loading:
             sys.stderr.write(f"☩ Cycle detected importing {rel_path}. Returning partial spirit.\n")
-            return Module(resolved_path, {})
+            return self._loading[resolved_path]
         if not os.path.exists(resolved_path):
             raise LogosError(f"Schism: Tradition not found: {rel_path}")
 
-        self._loading.add(resolved_path)
+        module = Module(resolved_path, {})
+        self._loading[resolved_path] = module
         try:
             with open(resolved_path, "r", encoding="utf-8") as f:
                 source = f.read()
 
-            security = self.security or (
-                parent_interp.security if parent_interp else SecurityContext.strict()
-            )
             io_handler = parent_interp.io if parent_interp else None
             execution_engine = parent_interp.execution_engine if parent_interp else None
             enable_static_type_elision = (
@@ -136,28 +131,21 @@ class ModuleManager:
                 trusted_lsp_types=trusted_lsp_types,
             )
             child_interp._current_file = resolved_path
-            tree = Lark(LOGOS_GRAMMAR, parser="lalr").parse(source)
+            module.interpreter = child_interp
+            tree = create_parser().parse(source)
             child_interp.visit(tree)
 
-            exports: Dict[str, Any] = {}
+            # Fill the Module object handed out to any cyclic importer, in place.
+            exports = module.exports
             for k, v in child_interp.scope.globals.items():
-                if k not in child_interp._builtin_snapshot:
-                    exports[k] = v
+                if k in child_interp._builtin_snapshot and v is child_interp._builtin_snapshot[k]:
                     continue
-                if v is not child_interp._builtin_snapshot[k]:
-                    exports[k] = v
-            for name, value in list(exports.items()):
-                if isinstance(value, UserFunction):
-                    exports[name] = ModuleFunction(value, child_interp, exports)
-
-            module = Module(
-                resolved_path,
-                exports,
-                types=dict(child_interp._global_types),
-                icons=dict(child_interp._icons),
-                interpreter=child_interp,
-            )
+                exports[k] = ModuleFunction(v, child_interp, exports) if isinstance(
+                    v, UserFunction
+                ) else v
+            module.types = dict(child_interp._global_types)
+            module.icons = dict(child_interp._icons)
             self._modules[resolved_path] = module
             return module
         finally:
-            self._loading.discard(resolved_path)
+            self._loading.pop(resolved_path, None)

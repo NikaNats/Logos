@@ -389,6 +389,7 @@ dev = [
     { name = "mutmut" },
     { name = "mypy" },
     { name = "psutil" },
+    { name = "pygls" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -407,6 +408,7 @@ dev = [
     { name = "mutmut", specifier = ">=3.3.1" },
     { name = "mypy", specifier = ">=1.11.0" },
     { name = "psutil", specifier = ">=7.0.0" },
+    { name = "pygls", specifier = ">=2.0.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.13.0" },
 ]
