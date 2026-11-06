@@ -43,6 +43,8 @@ htmlcov/
 .tox/
 .nox/
 .coverage
+# Default bytecode output of `logos.py --emit-bytecode` / WASI target
+.logos/
 .coverage.*
 .cache
 nosetests.xml

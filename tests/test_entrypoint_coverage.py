@@ -116,8 +116,12 @@ class EntrypointCoverageTests(unittest.TestCase):
             self.assertEqual(res, {"x": "HolyInt", "y": "Text"})
 
     def test_default_bytecode_path(self) -> None:
-        path = logos._default_bytecode_path("a/b/c.lg")
-        self.assertTrue(path.endswith("c.bytecode.json"))
+        # The helper creates the output directory, so never point it at the working tree.
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "a" / "b" / "c.lg"
+            path = Path(logos._default_bytecode_path(script))
+            self.assertEqual(path, script.parent / ".logos" / "c.bytecode.json")
+            self.assertTrue(path.parent.is_dir())
 
     def test_main_cli_options(self) -> None:
         with tempfile.TemporaryDirectory() as td:
