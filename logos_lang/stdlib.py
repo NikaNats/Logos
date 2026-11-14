@@ -3,7 +3,7 @@ import sys
 import time
 from typing import IO, TYPE_CHECKING, Any, Dict, Union
 
-from .exceptions import LogosError, SecurityError
+from .exceptions import SecurityError
 
 if TYPE_CHECKING:
     from .scope import ScopeManager

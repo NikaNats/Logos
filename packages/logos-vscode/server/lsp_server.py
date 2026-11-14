@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 
 def _fatal(msg: str) -> None:
@@ -13,12 +15,14 @@ try:
     try:
         from pygls.lsp.server import LanguageServer
     except Exception:
-        from pygls.server import LanguageServer
+        from pygls.server import LanguageServer  # type: ignore[attr-defined,no-redef]
     from lsprotocol.types import (
         TEXT_DOCUMENT_DID_CHANGE,
         TEXT_DOCUMENT_DID_OPEN,
         Diagnostic,
         DiagnosticSeverity,
+        DidChangeTextDocumentParams,
+        DidOpenTextDocumentParams,
         Position,
         PublishDiagnosticsParams,
         Range,
@@ -52,10 +56,10 @@ except ImportError:
     raise
 
 # --- PARSER CACHING ---
-_PARSER = None
+_PARSER: Lark | None = None
 
 
-def get_parser() -> "Lark":
+def get_parser() -> Lark:
     """Lazily construct and cache the Logos grammar parser using the canonical definition."""
     global _PARSER
     if _PARSER is None:
@@ -65,13 +69,16 @@ def get_parser() -> "Lark":
 
 
 class _ParserProxy:
-    def parse(self, *args, **kwargs):
+    def parse(self, *args: Any, **kwargs: Any) -> Tree[Token]:
         return get_parser().parse(*args, **kwargs)
 
 
 PARSER = _ParserProxy()
 
 # --- DIAGNOSTICS LOGIC ---
+
+FuncSigs = dict[str, tuple[list[tuple[str, str | None]], str | None]]
+VarLookup = Callable[[str], str | None]
 
 
 def _make_diag(line0: int, col0: int, msg: str) -> Diagnostic:
@@ -132,7 +139,7 @@ def _infer_literal_type(expr: object) -> str | None:
     return None
 
 
-def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagnostic:
+def _diag_from_node(node: Tree[Any], msg: str, severity: DiagnosticSeverity) -> Diagnostic:
     meta = getattr(node, "meta", None)
     line0 = (getattr(meta, "line", 1) - 1) if meta else 0
     col0 = (getattr(meta, "column", 1) - 1) if meta else 0
@@ -141,7 +148,7 @@ def _diag_from_node(node: Tree, msg: str, severity: DiagnosticSeverity) -> Diagn
     return d
 
 
-def _collect_icon_schemas(tree: Tree) -> dict[str, dict[str, str]]:
+def _collect_icon_schemas(tree: Tree[Any]) -> dict[str, dict[str, str]]:
     icons: dict[str, dict[str, str]] = {}
 
     def walk(node: object) -> None:
@@ -161,7 +168,7 @@ def _collect_icon_schemas(tree: Tree) -> dict[str, dict[str, str]]:
     return icons
 
 
-def _collect_var_types(tree: Tree) -> dict[str, str]:
+def _collect_var_types(tree: Tree[Any]) -> dict[str, str]:
     types: dict[str, str] = {}
 
     def walk(node: object) -> None:
@@ -176,10 +183,8 @@ def _collect_var_types(tree: Tree) -> dict[str, str]:
     return types
 
 
-def _collect_function_sigs(
-    tree: Tree,
-) -> dict[str, tuple[list[tuple[str, str | None]], str | None]]:
-    sigs = {}
+def _collect_function_sigs(tree: Tree[Any]) -> FuncSigs:
+    sigs: FuncSigs = {}
 
     def walk(node: object) -> None:
         if not isinstance(node, Tree):
@@ -187,25 +192,19 @@ def _collect_function_sigs(
         if node.data == "mystery_def":
             name = str(node.children[0])
             idx = 1
-            params = []
-            if (
-                idx < len(node.children)
-                and isinstance(node.children[idx], Tree)
-                and node.children[idx].data == "params"
-            ):
-                for p in node.children[idx].children:
+            params: list[tuple[str, str | None]] = []
+            params_node = node.children[idx] if idx < len(node.children) else None
+            if isinstance(params_node, Tree) and params_node.data == "params":
+                for p in params_node.children:
                     if isinstance(p, Tree) and p.data == "param":
                         p_name = str(p.children[0])
                         p_type = str(p.children[1]) if len(p.children) >= 2 else None
                         params.append((p_name, p_type))
                 idx += 1
             ret_type = None
-            if (
-                idx < len(node.children)
-                and isinstance(node.children[idx], Token)
-                and node.children[idx].type == "NAME"
-            ):
-                ret_type = str(node.children[idx])
+            ret_node = node.children[idx] if idx < len(node.children) else None
+            if isinstance(ret_node, Token) and ret_node.type == "NAME":
+                ret_type = str(ret_node)
             sigs[name] = (params, ret_type)
         for c in node.children:
             walk(c)
@@ -214,7 +213,12 @@ def _collect_function_sigs(
     return sigs
 
 
-def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | None:
+def _infer_expr_type(
+    expr: object,
+    lookup_var_type: VarLookup,
+    func_sigs: FuncSigs,
+    diags: list[Diagnostic],
+) -> str | None:
     literal = _infer_literal_type(expr)
     if literal:
         return literal
@@ -286,19 +290,19 @@ def _infer_expr_type(expr: object, lookup_var_type, func_sigs, diags) -> str | N
     return None
 
 
-def _typecheck(tree: Tree) -> list[Diagnostic]:
-    diags = []
+def _typecheck(tree: Tree[Any]) -> list[Diagnostic]:
+    diags: list[Diagnostic] = []
     mod_types = _collect_var_types(tree)
     sigs = _collect_function_sigs(tree)
-    scope_stack = []
+    scope_stack: list[dict[str, str]] = []
 
-    def lookup(name):
+    def lookup(name: str) -> str | None:
         for s in reversed(scope_stack):
             if name in s:
                 return s[name]
         return mod_types.get(name)
 
-    def walk(node):
+    def walk(node: object) -> None:
         if not isinstance(node, Tree):
             return
 
@@ -319,16 +323,12 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             return
 
         if node.data == "mystery_def":
-            local_types = {}
+            local_types: dict[str, str] = {}
             # (Simplistic param extraction for scope seeding)
-            idx = 1
-            if (
-                idx < len(node.children)
-                and isinstance(node.children[idx], Tree)
-                and node.children[idx].data == "params"
-            ):
-                for p in node.children[idx].children:
-                    if len(p.children) >= 2:
+            params_node = node.children[1] if len(node.children) > 1 else None
+            if isinstance(params_node, Tree) and params_node.data == "params":
+                for p in params_node.children:
+                    if isinstance(p, Tree) and len(p.children) >= 2:
                         local_types[str(p.children[0])] = str(p.children[1])
             scope_stack.append(local_types)
             for c in node.children:
@@ -359,12 +359,12 @@ def _typecheck(tree: Tree) -> list[Diagnostic]:
             actual = _infer_expr_type(val_node, lookup, sigs, diags)
             if actual and isinstance(target, Tree) and target.data == "mut_var":
                 vname = str(target.children[0])
-                decl = lookup(vname)
-                if decl and not TypeCanon.are_compatible(decl, actual):
+                declared = lookup(vname)
+                if declared and not TypeCanon.are_compatible(declared, actual):
                     diags.append(
                         _diag_from_node(
                             node,
-                            f"Type mismatch: '{vname}' is {decl} but amended with {actual}.",
+                            f"Type mismatch: '{vname}' is {declared} but amended with {actual}.",
                             DiagnosticSeverity.Error,
                         )
                     )
@@ -428,12 +428,12 @@ def validate(ls: LanguageServer, uri: str) -> None:
 
 
 @SERVER.feature(TEXT_DOCUMENT_DID_OPEN)
-def did_open(ls, params):
+def did_open(ls: LanguageServer, params: DidOpenTextDocumentParams) -> None:
     validate(ls, params.text_document.uri)
 
 
 @SERVER.feature(TEXT_DOCUMENT_DID_CHANGE)
-def did_change(ls, params):
+def did_change(ls: LanguageServer, params: DidChangeTextDocumentParams) -> None:
     validate(ls, params.text_document.uri)
 
 

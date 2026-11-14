@@ -1,4 +1,6 @@
+// Logos has no manual allocation: Processions grow on demand.
 mystery main() {
-    inscribe a = alloc(3);
+    inscribe a = [0, 0, 0];
+    adorn(a, 0);
     proclaim measure(a);
 } amen

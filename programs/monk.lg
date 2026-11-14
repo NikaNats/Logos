@@ -39,7 +39,7 @@ mystery main() {
     // Chant (Loop)
     chant i < 3 {
         proclaim "Kyrie Eleison...";
-        inscribe i = i + 1;
+        amend i = i + 1;
     } amen
 
     // Contemplate (Switch/Match)

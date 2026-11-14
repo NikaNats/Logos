@@ -148,6 +148,8 @@ class FFIManager:
 
         # Always wrap in an isolated CFUNCTYPE prototype to ensure return type is enforced correctly
         func_ptr = ctypes.cast(raw_func, ctypes.c_void_p).value
+        if func_ptr is None:
+            raise LogosError(f"Schism: Symbol '{func_name}' in '{filename}' resolved to null.")
         proto = ctypes.CFUNCTYPE(c_restype, *c_argtypes)
         bound_func = proto(func_ptr)
 

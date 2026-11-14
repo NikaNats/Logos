@@ -1,3 +1,4 @@
+# Run with: python logos.py examples/transfiguration_test.lg --unsafe-ffi --allow-inferred-ffi-signatures
 # Link the C math library (msvcrt on Windows, m on Linux)
 apocrypha "msvcrt" mystery cos();
 
@@ -6,5 +7,5 @@ inscribe counter = 0;
 chant counter < 3 {
     inscribe val = cos(counter);
     proclaim val;
-    inscribe counter = counter + 1;
+    amend counter = counter + 1;
 } amen
