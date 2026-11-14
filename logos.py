@@ -19,6 +19,7 @@ from logos_lang import (
     ForeignFunction,
     IOHandler,
     LogosError,
+    LogosExit,
     LogosInterpreter,
     Module,
     ModuleFunction,
@@ -82,8 +83,11 @@ def run_repl(interpreter: LogosInterpreter) -> None:  # pragma: no cover
                 result = result.value
             if result is not None:
                 interpreter.io.emit("=>", str(result))
+        except LogosExit:
+            break
         except Exception as e:
             interpreter.io.emit("Anathema:", str(e))
+    interpreter.close()
 
 
 def _load_trusted_lsp_types(path: str | Path | None) -> dict[str, str]:
@@ -158,6 +162,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Environment variable used to attest OS-level sandboxing when required.",
     )
     parser.add_argument(
+        "--import-root",
+        action="append",
+        default=[],
+        help="Extra directory `tradition` imports may resolve into "
+        "(the script's directory and the bundled lib/ are always allowed).",
+    )
+    parser.add_argument(
         "--execution-engine",
         choices=["visitor", "vm-hybrid", "vm", "vm-strict"],
         default="vm-hybrid",
@@ -211,6 +222,7 @@ def _configure_security(args: argparse.Namespace) -> SecurityContext:
     security.allow_inferred_ffi_signatures = args.allow_inferred_ffi_signatures
     security.require_os_sandbox_for_ffi = args.require_os_sandbox_for_ffi
     security.sandbox_attestation_env = args.sandbox_attestation_env
+    security.import_roots = [os.path.abspath(root) for root in args.import_root]
     return security
 
 
@@ -290,6 +302,8 @@ def main() -> None:
         if isinstance(main_func, UserFunction):
             interpreter._invoke_user_function(main_func, [])
 
+    except LogosExit as halt:
+        sys.exit(halt.code)
     except Exception as exc:
         message = _format_fatal(exc)
         try:
@@ -297,6 +311,8 @@ def main() -> None:
         except UnicodeEncodeError:
             print(f"FATAL ERROR\n{message}")
         sys.exit(1)
+    finally:
+        interpreter.close()
 
 
 if __name__ == "__main__":

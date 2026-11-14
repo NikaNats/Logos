@@ -37,6 +37,19 @@ class LogosError(Exception):
         return f"{prefix}: {self.message}" if prefix else self.message
 
 
+class LogosExit(BaseException):
+    """Raised by ``depart``/``__sys_exit`` to halt the interpreter, not the host process.
+
+    Derives from ``BaseException`` (like ``SystemExit``) so neither ``vigil`` nor the
+    host-exception trap in ``LogosInterpreter.visit`` can swallow it. Embedders catch it
+    and decide what halting means; the CLI turns it into a process exit code.
+    """
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class SecurityError(LogosError):
     """Raised when a program attempts a forbidden action."""
 

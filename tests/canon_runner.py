@@ -65,6 +65,8 @@ def _run_fixture(
                 interpreter._invoke_user_function(main_func, [])
         except Exception as e:
             err = e
+        finally:
+            interpreter.close()
 
     return _ExecResult(stdout=buf.getvalue(), error=err)
 

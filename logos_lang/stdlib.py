@@ -1,15 +1,55 @@
 import os
 import sys
 import time
+from pathlib import PurePath
 from typing import IO, TYPE_CHECKING, Any, Dict, Union
 
-from .exceptions import SecurityError
+from .exceptions import LogosError, LogosExit, SecurityError
 
 if TYPE_CHECKING:
     from .scope import ScopeManager
 
 
+_SCROLL_MODES = {0: "r", 1: "w", 2: "a"}
+
+# Scripts may write data files next to themselves, but never code the host could later
+# execute or load (Logos/Python sources, native libraries, scripts, WASM modules).
+_WRITE_PROTECTED_SUFFIXES = frozenset(
+    {
+        ".lg", ".py", ".pyc", ".pyd", ".pth",
+        ".dll", ".so", ".dylib", ".exe", ".com", ".scr", ".msi", ".wasm",
+        ".bat", ".cmd", ".ps1", ".psm1", ".sh", ".vbs", ".js", ".mjs", ".cjs",
+    }
+)
+
+
+def _is_write_protected(path: str) -> bool:
+    """Whether writing ``path`` could plant executable code.
+
+    Closes filename tricks a plain ``splitext`` misses: case (``.PY``), Windows trailing
+    dots/spaces (``evil.py.`` is created as ``evil.py``), NTFS alternate data streams
+    (``name:stream``) and versioned shared libraries (``libx.so.6``).
+    """
+    name = os.path.basename(path)
+    if os.name == "nt":
+        if ":" in name:
+            return True
+        name = name.rstrip(". ")
+    suffixes = [s.lower() for s in PurePath(name).suffixes]
+    for i, suffix in enumerate(suffixes):
+        trailing_versions = all(v[1:].isdigit() for v in suffixes[i + 1 :])
+        if suffix in _WRITE_PROTECTED_SUFFIXES and trailing_versions:
+            return True
+    return False
+
+
+def _exit(code: Any) -> None:
+    raise LogosExit(int(code))
+
+
 class StdLib:
+    MAX_OPEN_SCROLLS = 64
+
     def __init__(self, base_path: str) -> None:
         self.base_path = base_path
         self._fds: Dict[int, IO[str]] = {}
@@ -28,7 +68,7 @@ class StdLib:
         scope.register_builtin("__sys_time", now_fn)
         scope.register_builtin("__sys_env", env_fn)
         scope.register_builtin("__sys_sleep", lambda ms: time.sleep(float(ms) / 1000.0))
-        scope.register_builtin("__sys_exit", lambda c: sys.exit(int(c)))
+        scope.register_builtin("__sys_exit", _exit)
         scope.register_builtin("__sys_open", self._open)
         scope.register_builtin("__sys_close", self._close)
         scope.register_builtin("__sys_write", self._write)
@@ -53,13 +93,35 @@ class StdLib:
             raise SecurityError("Security Violation: Path traversal blocked.")
 
         try:
-            mode_str = {0: "r", 1: "w", 2: "a"}.get(int(mode), "r")
-            fd = self._next_fd
-            self._fds[fd] = open(resolved, mode_str, encoding="utf-8")
-            self._next_fd += 1
-            return fd
-        except Exception:
+            mode_str = _SCROLL_MODES[int(mode)]
+        except (KeyError, TypeError, ValueError):
+            raise LogosError(
+                f"Anathema: Invalid scroll mode {mode!r}; expected 0 (read), 1 (write) or 2 (append)."
+            ) from None
+
+        if mode_str != "r" and (_is_write_protected(str(path)) or _is_write_protected(resolved)):
+            raise SecurityError("Security Violation: Writing executable or source files is blocked.")
+
+        if len(self._fds) >= self.MAX_OPEN_SCROLLS:
+            raise LogosError(
+                f"Anathema: Too many open scrolls (limit {self.MAX_OPEN_SCROLLS}); close some first."
+            )
+
+        try:
+            handle = open(resolved, mode_str, encoding="utf-8")
+        except OSError:
+            # Documented contract: a scroll that cannot be opened yields descriptor 0.
             return 0
+        fd = self._next_fd
+        self._fds[fd] = handle
+        self._next_fd += 1
+        return fd
+
+    def close_all(self) -> None:
+        """Close every scroll still open (called when an interpreter run ends)."""
+        while self._fds:
+            _, handle = self._fds.popitem()
+            handle.close()
 
     def _close(self, fd: int) -> None:
         f = self._fds.pop(int(fd), None)
