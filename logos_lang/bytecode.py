@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, List, cast
 from lark import Tree
 
 from .exceptions import LogosError
-from .models import ForeignFunction, ModuleFunction, UserFunction
 from .types import TypeCanon
 
 if TYPE_CHECKING:
@@ -57,6 +56,8 @@ class OpCode(Enum):
 class Instruction:
     opcode: OpCode
     arg: Any = None
+    line: int | None = None
+    column: int | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class BytecodeProgram:
                 {
                     "op": instruction.opcode.name,
                     "arg": instruction.arg,
+                    "line": instruction.line,
                 }
                 for instruction in self.instructions
             ]
@@ -83,6 +85,7 @@ class BytecodeCompiler:
             raise BytecodeUnsupported("Bytecode compilation requires a 'start' tree.")
 
         self._instructions: List[Instruction] = []
+        self._position: tuple[int | None, int | None] = (None, None)
 
         for statement in tree.children:
             if not isinstance(statement, Tree):
@@ -93,13 +96,17 @@ class BytecodeCompiler:
         return BytecodeProgram(instructions=list(self._instructions))
 
     def _emit(self, opcode: OpCode, arg: Any = None) -> int:
-        self._instructions.append(Instruction(opcode=opcode, arg=arg))
+        line, column = self._position
+        self._instructions.append(Instruction(opcode=opcode, arg=arg, line=line, column=column))
         return len(self._instructions) - 1
 
     def _patch(self, index: int, arg: Any) -> None:
         self._instructions[index].arg = arg
 
     def _compile_statement(self, node: Tree[Any]) -> None:
+        meta = getattr(node, "meta", None)
+        if meta is not None and not getattr(meta, "empty", True):
+            self._position = (meta.line, meta.column)
         rule = node.data
 
         if rule == "proclaim":
@@ -316,18 +323,55 @@ class BytecodeCompiler:
 
 
 class BytecodeVM:
-    """Stack VM for executing Logos bytecode programs."""
+    """Stack VM for executing Logos bytecode programs.
+
+    Language semantics (operators, equality, casts, calls, type enforcement, output
+    formatting) are delegated to the owning ``LogosInterpreter`` so both engines share one
+    implementation; the VM only owns control flow and the operand stack.
+    """
+
+    _BINARY_OPS = {
+        OpCode.ADD: "add",
+        OpCode.SUB: "sub",
+        OpCode.MUL: "mul",
+        OpCode.DIV: "div",
+        OpCode.MOD: "mod",
+        OpCode.LT: "lt",
+        OpCode.GT: "gt",
+        OpCode.LE: "le",
+        OpCode.GE: "ge",
+    }
 
     def __init__(self, interpreter: "LogosInterpreter"):
         self._interpreter = interpreter
 
     def run(self, program: BytecodeProgram) -> Any:
+        interp = self._interpreter
+        scope_depth = len(interp.scope.stack)
+        type_depth = len(interp._type_stack)
+        self._current: Instruction | None = None
+        try:
+            return self._execute(program)
+        except LogosError as exc:
+            if self._current is not None:
+                exc.attach_location(
+                    self._current.line, self._current.column, interp._current_file
+                )
+            raise
+        finally:
+            # Leave no dangling block frames behind if execution aborted mid-block.
+            del interp.scope.stack[scope_depth:]
+            del interp._type_stack[type_depth:]
+
+    def _execute(self, program: BytecodeProgram) -> Any:
+        interp = self._interpreter
         stack: List[Any] = []
         ip = 0
         instructions = program.instructions
 
         while ip < len(instructions):
             instruction = instructions[ip]
+            self._current = instruction
             opcode = instruction.opcode
 
             if opcode == OpCode.PUSH_CONST:
@@ -336,7 +380,7 @@ class BytecodeVM:
                 continue
 
             if opcode == OpCode.LOAD_VAR:
-                stack.append(self._interpreter.scope.get(cast(str, instruction.arg)))
+                stack.append(interp.scope.get(cast(str, instruction.arg)))
                 ip += 1
                 continue
 
@@ -344,24 +388,22 @@ class BytecodeVM:
                 name, declared_type = cast(tuple[str, str | None], instruction.arg)
                 value = self._pop(stack, opcode)
                 if declared_type is not None:
-                    self._interpreter._declare_type(name, declared_type)
-                self._interpreter._enforce_declared_type(name, value)
-                self._interpreter.scope.declare(name, value)
+                    interp._declare_type(name, declared_type)
+                interp._enforce_declared_type(name, value)
+                interp.scope.declare(name, value)
                 ip += 1
                 continue
 
             if opcode == OpCode.AMEND:
                 name = cast(str, instruction.arg)
                 value = self._pop(stack, opcode)
-                self._interpreter._enforce_declared_type(name, value)
-                self._interpreter.scope.mutate(name, value)
+                interp._enforce_declared_type(name, value)
+                interp.scope.mutate(name, value)
                 ip += 1
                 continue
 
             if opcode == OpCode.PROCLAIM:
-                value = self._pop(stack, opcode)
-                prefix = "Verily" if value is True else "Nay" if value is False else str(value)
-                self._interpreter._emit("☩", prefix)
+                interp._emit("☩", interp._format_value(self._pop(stack, opcode)))
                 ip += 1
                 continue
 
@@ -370,67 +412,10 @@ class BytecodeVM:
                 ip += 1
                 continue
 
-            if opcode == OpCode.ADD:
+            binary_op = self._BINARY_OPS.get(opcode)
+            if binary_op is not None:
                 right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("add", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'add' between types {left_t} and {right_t}."
-                    )
-                stack.append(left + right)
-                ip += 1
-                continue
-
-            if opcode == OpCode.SUB:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("sub", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'sub' between types {left_t} and {right_t}."
-                    )
-                stack.append(left - right)
-                ip += 1
-                continue
-
-            if opcode == OpCode.MUL:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("mul", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'mul' between types {left_t} and {right_t}."
-                    )
-                stack.append(left * right)
-                ip += 1
-                continue
-
-            if opcode == OpCode.DIV:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("div", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'div' between types {left_t} and {right_t}."
-                    )
-                if right == 0:
-                    raise LogosError("Anathema: Division by zero.")
-                stack.append(left / right)
-                ip += 1
-                continue
-
-            if opcode == OpCode.MOD:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("mod", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'mod' between types {left_t} and {right_t}."
-                    )
-                if right == 0:
-                    raise LogosError("Anathema: Division by zero in modulo.")
-                stack.append(left % right)
+                stack.append(interp._eval_binary_op(binary_op, left, right))
                 ip += 1
                 continue
 
@@ -443,70 +428,17 @@ class BytecodeVM:
                 ip += 1
                 continue
 
-            if opcode == OpCode.EQ:
+            if opcode in (OpCode.EQ, OpCode.NE):
                 right, left = self._pop2(stack, opcode)
-                stack.append(bool(left == right))
-                ip += 1
-                continue
-
-            if opcode == OpCode.NE:
-                right, left = self._pop2(stack, opcode)
-                stack.append(bool(left != right))
-                ip += 1
-                continue
-
-            if opcode == OpCode.LT:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("lt", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'lt' between types {left_t} and {right_t}."
-                    )
-                stack.append(bool(left < right))
-                ip += 1
-                continue
-
-            if opcode == OpCode.GT:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("gt", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'gt' between types {left_t} and {right_t}."
-                    )
-                stack.append(bool(left > right))
-                ip += 1
-                continue
-
-            if opcode == OpCode.LE:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("le", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'le' between types {left_t} and {right_t}."
-                    )
-                stack.append(bool(left <= right))
-                ip += 1
-                continue
-
-            if opcode == OpCode.GE:
-                right, left = self._pop2(stack, opcode)
-                left_t = TypeCanon.get_type_of_value(left)
-                right_t = TypeCanon.get_type_of_value(right)
-                if TypeCanon.resolve_binary_op("ge", left_t, right_t) is None:
-                    raise LogosError(
-                        f"Canon Error: Invalid operation 'ge' between types {left_t} and {right_t}."
-                    )
-                stack.append(bool(left >= right))
+                equal = TypeCanon.values_equal(left, right)
+                stack.append(equal if opcode == OpCode.EQ else not equal)
                 ip += 1
                 continue
 
             if opcode == OpCode.CALL:
                 func_name, arg_count = cast(tuple[str, int], instruction.arg)
                 args = self._pop_n(stack, arg_count, opcode)
-                stack.append(self._invoke_callable(func_name, args))
+                stack.append(interp._call_by_name(func_name, args))
                 ip += 1
                 continue
 
@@ -518,15 +450,14 @@ class BytecodeVM:
 
             if opcode == OpCode.CAST:
                 target = cast(str, instruction.arg)
-                value = self._pop(stack, opcode)
-                stack.append(self._cast_value(value, target))
+                stack.append(interp._cast_value(self._pop(stack, opcode), target))
                 ip += 1
                 continue
 
             if opcode == OpCode.INPUT:
                 prompt = str(self._pop(stack, opcode))
                 try:
-                    stack.append(self._interpreter.io.read_input(prompt))
+                    stack.append(interp.io.read_input(prompt))
                 except Exception:
                     stack.append(input(prompt))
                 ip += 1
@@ -538,7 +469,7 @@ class BytecodeVM:
 
             if opcode == OpCode.JUMP_IF_FALSE:
                 condition = self._pop(stack, opcode)
-                self._interpreter._enforce_value_type(condition, "Bool", context="jump condition")
+                interp._enforce_value_type(condition, "Bool", context="jump condition")
                 if not condition:
                     ip = cast(int, instruction.arg)
                     continue
@@ -546,12 +477,12 @@ class BytecodeVM:
                 continue
 
             if opcode == OpCode.PUSH_SCOPE:
-                self._interpreter.scope.push_frame({})
+                interp._push_block_scope()
                 ip += 1
                 continue
 
             if opcode == OpCode.POP_SCOPE:
-                self._interpreter.scope.pop_frame()
+                interp._pop_block_scope()
                 ip += 1
                 continue
 
@@ -561,53 +492,6 @@ class BytecodeVM:
             raise LogosError(f"Schism: Unknown VM opcode '{opcode}'.")
 
         return stack[-1] if stack else None
-
-    def _invoke_callable(self, func_name: str, args: List[Any]) -> Any:
-        spirit = self._interpreter.scope.get(func_name)
-
-        if isinstance(spirit, ModuleFunction):
-            sync = {
-                k: (v.func if isinstance(v, ModuleFunction) else v)
-                for k, v in spirit.exports.items()
-                if k != "__icon__"
-            }
-            spirit.interpreter.scope.globals.update(sync)
-            return spirit.interpreter._invoke_user_function(spirit.func, args)
-
-        if self._interpreter._recursion_depth > self._interpreter._max_recursion:
-            raise LogosError("Pride: Recursion depth exceeded.")
-
-        self._interpreter._recursion_depth += 1
-        try:
-            if isinstance(spirit, UserFunction):
-                return self._interpreter._invoke_user_function(spirit, args)
-            if isinstance(spirit, ForeignFunction):
-                return self._interpreter._invoke_foreign_function(spirit, args)
-            if callable(spirit):
-                return spirit(*args)
-            raise LogosError(f"Anathema: '{func_name}' is not callable.")
-        except RecursionError as exc:
-            raise LogosError("Pride: Host recursion limit reached.") from exc
-        finally:
-            self._interpreter._recursion_depth -= 1
-
-    @staticmethod
-    def _cast_value(value: Any, target: str) -> Any:
-        if target in ("HolyInt", "Int"):
-            try:
-                return int(value)
-            except (ValueError, TypeError) as exc:
-                raise LogosError(f"Canon Error: Cannot transfigure {value} into {target}.") from exc
-        if target in ("HolyFloat", "Float", "Double"):
-            try:
-                return float(value)
-            except (ValueError, TypeError) as exc:
-                raise LogosError(f"Canon Error: Cannot transfigure {value} into {target}.") from exc
-        if target in ("Text", "String"):
-            return str(value)
-        if target in ("Bool", "Verily", "Nay"):
-            return bool(value)
-        raise LogosError(f"Canon Error: Unknown transfigure target type '{target}'.")
 
     @staticmethod
     def _pop(stack: List[Any], opcode: OpCode) -> Any:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, List
 
 from lark import Tree
 
@@ -18,6 +18,11 @@ class StaticTypeAnalyzer:
 
     The analyzer only elides checks for globally declared variables when all
     observed assignments are statically inferred and type-compatible.
+
+    Block statements open a lexical scope exactly as at runtime: declarations inside a
+    block are locals, never global facts, and an ``amend`` resolves to the innermost
+    binding. Function bodies are not walked: they always run with a non-empty type
+    stack, where the runtime never elides checks.
     """
 
     def analyze(self, tree: Any) -> StaticTypeElisionPlan:
@@ -26,6 +31,8 @@ class StaticTypeAnalyzer:
 
         self._declared_global: Dict[str, str] = {}
         self._eligible_global: Dict[str, str] = {}
+        # Innermost-last stack of local scopes: name -> declared type (None if untyped).
+        self._scopes: List[Dict[str, str | None]] = []
 
         self._walk_statements(tree.children)
         return StaticTypeElisionPlan(bindings=dict(self._eligible_global))
@@ -35,64 +42,64 @@ class StaticTypeAnalyzer:
             if isinstance(statement, Tree):
                 self._walk_statement(statement)
 
+    def _walk_child(self, node: Any) -> None:
+        if isinstance(node, Tree):
+            self._walk_statement(node)
+
     def _walk_statement(self, statement: Tree[Any]) -> None:
         rule = statement.data
+        children = statement.children
 
         if rule == "inscribe":
             self._handle_inscribe(statement)
-            return
-
-        if rule == "amend":
+        elif rule == "amend":
             self._handle_amend(statement)
-            return
-
-        if rule == "block":
-            self._walk_statements(statement.children)
-            return
-
-        if rule == "chant":
-            body = statement.children[1] if len(statement.children) > 1 else None
-            if isinstance(body, Tree):
-                self._walk_statement(body)
-            return
-
-        if rule == "discernment":
-            then_branch = statement.children[1] if len(statement.children) > 1 else None
-            else_branch = statement.children[2] if len(statement.children) > 2 else None
-            if isinstance(then_branch, Tree):
-                self._walk_statement(then_branch)
-            if isinstance(else_branch, Tree):
-                self._walk_statement(else_branch)
-            return
-
-        if rule == "vigil":
-            try_branch = statement.children[0] if statement.children else None
-            catch_branch = statement.children[2] if len(statement.children) > 2 else None
-            if isinstance(try_branch, Tree):
-                self._walk_statement(try_branch)
-            if isinstance(catch_branch, Tree):
-                self._walk_statement(catch_branch)
-            return
-
-        if rule == "contemplation":
-            for clause in statement.children[1:]:
+        elif rule == "block":
+            self._scopes.append({})
+            try:
+                self._walk_statements(children)
+            finally:
+                self._scopes.pop()
+        elif rule == "chant":
+            self._walk_child(children[1] if len(children) > 1 else None)
+        elif rule == "discernment":
+            self._walk_child(children[1] if len(children) > 1 else None)
+            self._walk_child(children[2] if len(children) > 2 else None)
+        elif rule == "vigil":
+            self._walk_child(children[0] if children else None)
+            self._walk_child(children[2] if len(children) > 2 else None)
+        elif rule == "contemplation":
+            for clause in children[1:]:
                 if isinstance(clause, Tree) and clause.data == "case_clause":
-                    body = clause.children[1] if len(clause.children) > 1 else None
-                    if isinstance(body, Tree):
-                        self._walk_statement(body)
-            return
+                    # A non-block case body runs in the enclosing scope, so walking it
+                    # in the current scope matches runtime behavior.
+                    self._walk_child(clause.children[1] if len(clause.children) > 1 else None)
+
+    def _resolve_local(self, name: str) -> tuple[bool, str | None]:
+        for scope in reversed(self._scopes):
+            if name in scope:
+                return True, scope[name]
+        return False, None
 
     def _handle_inscribe(self, statement: Tree[Any]) -> None:
-        if len(statement.children) != 3:
+        children = statement.children
+        if len(children) not in (2, 3):
+            return
+        name = str(children[0])
+        declared_type = str(children[1]) if len(children) == 3 else None
+        expr = children[-1]
+
+        if self._scopes:
+            self._scopes[-1][name] = declared_type
             return
 
-        name = str(statement.children[0])
-        declared_type = str(statement.children[1])
-        expr = statement.children[2]
+        if declared_type is None:
+            # Untyped re-inscribe of a typed global is still checked against its type.
+            self._check_global_assignment(name, expr)
+            return
 
         self._declared_global[name] = declared_type
         inferred = self._infer_expr_type(expr)
-
         if inferred is not None and TypeCanon.are_compatible(declared_type, inferred):
             self._eligible_global[name] = declared_type
         else:
@@ -102,17 +109,20 @@ class StaticTypeAnalyzer:
         if len(statement.children) != 2:
             return
 
-        target = statement.children[0]
-        value = statement.children[1]
-
+        target, value = statement.children
         if not isinstance(target, Tree) or target.data != "mut_var" or not target.children:
             return
 
         name = str(target.children[0])
+        is_local, _ = self._resolve_local(name)
+        if is_local:
+            return
+        self._check_global_assignment(name, value)
+
+    def _check_global_assignment(self, name: str, value: Any) -> None:
         declared_type = self._declared_global.get(name)
         if not declared_type:
             return
-
         inferred = self._infer_expr_type(value)
         if inferred is None or not TypeCanon.are_compatible(declared_type, inferred):
             self._eligible_global.pop(name, None)
@@ -139,7 +149,11 @@ class StaticTypeAnalyzer:
         if rule == "var":
             if not node.children:
                 return None
-            return self._declared_global.get(str(node.children[0]))
+            var_name = str(node.children[0])
+            is_local, local_type = self._resolve_local(var_name)
+            if is_local:
+                return local_type
+            return self._declared_global.get(var_name)
 
         if rule == "transfigure":
             if len(node.children) < 2:
