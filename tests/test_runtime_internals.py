@@ -216,8 +216,10 @@ class RuntimeInternalsTests(unittest.TestCase):
             std = logos_lang.StdLib(base)
             scope = logos_lang.ScopeManager()
             std.register_into(scope)
-            fd = scope.get("__sys_open")("escape/secret.txt", 0)
-            self.assertEqual(fd, 0)
+            # Escaping the base path through a symlink is a sandbox violation, not a
+            # routine I/O failure (matches test_security and the canon reference).
+            with self.assertRaises(logos_lang.SecurityError):
+                scope.get("__sys_open")("escape/secret.txt", 0)
 
     def test_chant_runs_at_least_once(self) -> None:
         _, out = self._run_program("inscribe x=0; chant x<3 { amend x=x+1; } amen proclaim x;")
