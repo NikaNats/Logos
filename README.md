@@ -39,27 +39,29 @@ To begin your journey with Logos, ensure you have **Python 3.12+** installed.
 4.  **Run a Sample Liturgy:**
     Execute the `smoke_test.lg` example to confirm everything is working:
     ```bash
-    python logos.py examples/smoke_test.lg
+    uv run logos examples/smoke_test.lg
     ```
     This script performs basic system checks, including time, math, and file I/O operations, proclaiming the results to your console.
+
+    To use `logos` outside this checkout, install it as a tool: `uv tool install .` (or `pipx install .`).
 
 5.  **Interactive Confessional (REPL):**
     For immediate exploration, run Logos in interactive mode:
     ```bash
-    python logos.py
+    uv run logos
     ```
     Type `silence;` to execute a statement and `exit` or `depart(0);` to leave.
 
 6.  **VM / WASI (Optional):**
     ```bash
     # Force strict bytecode VM execution (no visitor fallback)
-    python logos.py programs/main.lg --execution-engine vm-strict
+    uv run logos programs/main.lg --execution-engine vm-strict
 
     # Emit portable bytecode artifact
-    python logos.py programs/main.lg --emit-bytecode .logos/main.bytecode.json
+    uv run logos programs/main.lg --emit-bytecode .logos/main.bytecode.json
 
     # Dispatch bytecode into an external WASI runtime module
-    python logos.py programs/main.lg --execution-target wasi --wasi-module ./runtime/logos_vm_wasi.wasm
+    uv run logos programs/main.lg --execution-target wasi --wasi-module ./runtime/logos_vm_wasi.wasm
     ```
 
 ---
@@ -173,7 +175,7 @@ proclaim cos(pi); // Output: ~ -1.0
 For untrusted liturgies, keep FFI disabled (default strict mode). If FFI is required, prefer explicit signatures and enable OS-sandbox attestation gates:
 
 ```bash
-python logos.py script.lg \
+uv run logos script.lg \
     --unsafe-ffi \
     --ffi-backend ctypes \
     --require-os-sandbox-for-ffi \
@@ -234,53 +236,52 @@ To include coverage reports:
 ```bash
 uv sync --group dev
 uv run coverage run -m pytest
-coverage report -m
+uv run coverage report
 ```
 
 The suite covers grammar, runtime internals (`logos_lang`), security sandboxing, fuzzing, FFI resilience, and LSP protocol integrity.
 
-For advanced conformance and adversarial testing domains, see [TESTING_ARCHITECTURE.md](TESTING_ARCHITECTURE.md).
+For advanced conformance and adversarial testing domains, see [TESTING_ARCHITECTURE.md](docs/TESTING_ARCHITECTURE.md).
 
-For the formal language definition (grammar, typing, and execution model), see [FORMAL_LANGUAGE_SPEC.md](FORMAL_LANGUAGE_SPEC.md).
+For the formal language definition (grammar, typing, and execution model), see [FORMAL_LANGUAGE_SPEC.md](docs/FORMAL_LANGUAGE_SPEC.md).
 
-For the bundled standard-library contracts and builtin mysteries, see [CANON_API_REFERENCE.md](CANON_API_REFERENCE.md).
+For the bundled standard-library contracts and builtin mysteries, see [CANON_API_REFERENCE.md](docs/CANON_API_REFERENCE.md).
 
-For idiomatic control flow, safe Apocrypha usage, and multi-file tradition architecture, see [PILGRIMS_PATH.md](PILGRIMS_PATH.md).
+For idiomatic control flow, safe Apocrypha usage, and multi-file tradition architecture, see [PILGRIMS_PATH.md](docs/PILGRIMS_PATH.md).
 
 ---
 
 ## 🏛️ Directory Layout: The Grand Design
 
-The project is architected into the core language package, the standard library (lib), and external tooling.
+The project uses the standard `src/` layout: one installable Python package, its bundled standard library, and separate tooling.
 
 ```
-nikanats-logos/
-├── logos.py                 # Entrypoint: CLI and REPL wrapper.
-├── logos_lang/              # The Core Logic (The Soul):
-│   ├── interpreter.py       # The Runtime (The Spirit).
+logos/
+├── src/logos_lang/          # The Core Logic (The Soul) — the installable package:
+│   ├── cli.py               # `logos` command / `python -m logos_lang`: CLI and REPL.
+│   ├── interpreter.py       # The Runtime (The Spirit): AST visitor.
+│   ├── bytecode.py          # Bytecode compiler + stack VM.
 │   ├── grammar.py           # The Grammar Definition (Lark).
 │   ├── ffi.py               # Foreign Function Interface logic.
-│   ├── scope.py             # Variable scoping and stack management.
 │   ├── stdlib.py            # Native Python bindings for the Standard Lib.
-│   └── ...                  # Models, Types, and Module management.
-├── lib/                     # The Standard Library (The Canon - .lg files):
-│   ├── canon.lg             # General utilities.
-│   ├── genesis.lg           # System, Time, and File I/O.
-│   ├── numeri.lg            # Mathematics.
-│   └── psalms.lg            # String manipulation.
+│   ├── ...                  # Scope, types, modules, static analysis, WASI bridge.
+│   └── lib/                 # The Standard Library (The Canon), imported as `tradition "std:<book>";`
+│       ├── genesis.lg       # System, Time, and File I/O.
+│       ├── numeri.lg        # Mathematics.
+│       ├── psalms.lg        # String manipulation.
+│       └── canon.lg         # Legacy typed bundle.
+├── docs/                    # Formal spec, canon API reference, guide, testing architecture.
 ├── examples/                # Small liturgies showcasing features.
 ├── programs/                # Complex, multi-file programs (e.g., monk.lg, creed.lg).
-├── packages/                # Editor integrations:
-│   ├── logos-vscode/        # The primary VS Code extension.
-│   │   ├── src/             # TypeScript client + TypeScript LSP server.
-│   │   ├── server/          # Legacy Python LSP implementation.
-│   │   └── syntaxes/        # TextMate grammar.
-│   └── logos-liturgy/       # (Legacy) Alternative client structure.
+├── packages/logos-vscode/   # VS Code extension:
+│   ├── src/                 # TypeScript client + LSP server (analysis.ts = pure, unit-tested logic).
+│   ├── server/              # Legacy Python LSP implementation (pygls).
+│   └── syntaxes/            # TextMate grammar.
 └── tests/                   # The Inquisitor (Test Suite):
-    ├── fixtures/            # Isolated code snippets for testing.
-    ├── fuzz/                # Fuzz testing for parser stability.
-    ├── security/            # Security regression tests (sandbox escapes).
-    └── stress/              # TCO benchmark tests.
+    ├── fixtures/            # .lg programs exercised by the suites (incl. fixtures/security/).
+    ├── fuzz/                # Hypothesis fuzzing and the visitor-vs-VM differential test.
+    ├── stress/              # TCO benchmark tests.
+    └── test_*.py            # Dogma, security, runtime, LSP and CLI suites.
 ```
 
 ---
@@ -301,9 +302,9 @@ graph TD
 
     subgraph Stage2 ["🟪 Phase 2: Execution"]
         direction LR
-        CLI("logos.py")
+        CLI("logos (CLI)")
         Core("⚙️ <b>logos_lang</b><br/>(Interpreter)")
-        Lib("📚 <b>lib/*.lg</b><br/>(Canon)")
+        Lib("📚 <b>std:* books</b><br/>(Canon)")
     end
 
     subgraph Stage3 ["🟩 Phase 3: Revelation"]

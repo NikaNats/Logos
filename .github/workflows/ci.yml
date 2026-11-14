@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --group dev --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Smoke test
+        run: uv run logos examples/smoke_test.lg
+
+  packaging:
+    name: Wheel installs and runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: uv build
+
+      - name: Install the wheel into a clean environment and run the CLI outside the repo
+        run: |
+          uv venv /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env/bin/python dist/*.whl
+          cd /tmp
+          printf 'tradition "std:numeri";\nproclaim power(2, 10);\n' > check.lg
+          /tmp/wheel-env/bin/logos check.lg | tee out.txt
+          grep -q 1024 out.txt
+          test ! -e /tmp/wheel-env/lib/python3.12/site-packages/lib
+
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/logos-vscode
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/logos-vscode/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile and unit-test the language server
+        run: npm run test:unit

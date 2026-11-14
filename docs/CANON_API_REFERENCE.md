@@ -3,22 +3,24 @@
 Version: 1.0-draft
 Status: Normative reference for bundled Logos modules and injected mysteries
 
-This manual documents the bundled standard modules under `lib/` and the built-ins injected by the runtime.
+This manual documents the bundled standard modules (`src/logos_lang/lib/`, imported as `tradition "std:<book>";`) and the built-ins injected by the runtime.
 It is intended as an implementation-level contract for users, tooling, and alternate runtimes.
 
 ## 1. Module Index
 
-- Book of Genesis: `lib/genesis.lg` (time, environment, file I/O wrappers)
-- Book of Numbers: `lib/numeri.lg` (numeric helpers)
-- Book of Psalms: `lib/psalms.lg` (text and sequence helpers)
-- Legacy Canon bundle: `lib/canon.lg` (typed helper set)
+- Book of Genesis: `std:genesis` (time, environment, file I/O wrappers)
+- Book of Numbers: `std:numeri` (numeric helpers)
+- Book of Psalms: `std:psalms` (text and sequence helpers)
+- Legacy Canon bundle: `std:canon` (typed helper set)
 
 Import behavior:
 
 - `tradition "...";` imports exported mysteries into current scope.
+- `tradition "std:<book>";` imports a book of the bundled canon (e.g. `std:genesis`) from
+  wherever the runtime is installed; other paths are relative to the importing file.
 - `tradition "..." as alias;` binds exports under namespace map `alias`.
 
-## 2. Book of Genesis (`lib/genesis.lg`)
+## 2. Book of Genesis (`std:genesis`)
 
 ## 2.1 now
 
@@ -209,7 +211,7 @@ Failure behavior:
 
 - Invalid descriptor returns empty string `""`.
 
-## 3. Book of Numbers (`lib/numeri.lg`)
+## 3. Book of Numbers (`std:numeri`)
 
 ## 3.1 abs
 
@@ -313,7 +315,7 @@ Domain note:
 
 - Designed for non-negative integer `n`.
 
-## 4. Book of Psalms (`lib/psalms.lg`)
+## 4. Book of Psalms (`std:psalms`)
 
 ## 4.1 is_empty
 
@@ -612,13 +614,13 @@ Contract:
 
 - Injected as startup argument tail from host process.
 
-## 6. Legacy Canon Bundle (`lib/canon.lg`)
+## 6. Legacy Canon Bundle (`std:canon`)
 
-`lib/canon.lg` provides an older composite helper set (typed mysteries such as `pow`, `equals`, `ask_int`, logical helpers). It remains useful for compatibility, but for explicit domain APIs prefer:
+`std:canon` provides an older composite helper set (typed mysteries such as `pow`, `equals`, `ask_int`, logical helpers). It remains useful for compatibility, but for explicit domain APIs prefer:
 
-- `lib/numeri.lg` for numeric helpers
-- `lib/psalms.lg` for text/sequence helpers
-- `lib/genesis.lg` for system and I/O wrappers
+- `std:numeri` for numeric helpers
+- `std:psalms` for text/sequence helpers
+- `std:genesis` for system and I/O wrappers
 
 ## 7. Error and Vigil Interoperability Notes
 

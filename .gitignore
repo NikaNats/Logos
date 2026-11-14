@@ -43,8 +43,10 @@ htmlcov/
 .tox/
 .nox/
 .coverage
-# Default bytecode output of `logos.py --emit-bytecode` / WASI target
+# Default bytecode output of `logos --emit-bytecode` / WASI target
 .logos/
+# Written by the canon I/O test (cleaned up on success; ignored in case a run is interrupted)
+canon_io.tmp
 .coverage.*
 .cache
 nosetests.xml

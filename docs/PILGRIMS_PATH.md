@@ -147,7 +147,7 @@ Default behavior is strict:
 - Pointer-like types blocked unless explicitly allowed.
 - Inferred signatures disabled unless explicitly allowed.
 
-Relevant CLI flags in `logos.py`:
+Relevant flags of the `logos` CLI:
 
 - `--unsafe-ffi`: enables permissive FFI baseline policy.
 - `--allow-unsafe-pointers`: allows pointer-like FFI types such as `Text`/`String`.
@@ -217,7 +217,7 @@ Logos already blocks many dangerous symbols (for example process-spawn/load-libr
 Example hardened launch:
 
 ```bash
-python logos.py programs/main.lg \
+uv run logos programs/main.lg \
   --unsafe-ffi \
   --ffi-backend ctypes \
   --require-os-sandbox-for-ffi \
@@ -232,7 +232,7 @@ python logos.py programs/main.lg \
 
 This means imports remain stable when launching from different directories.
 
-Imports may only resolve inside the entry script's directory, the bundled canon (`lib/`),
+Imports may only resolve inside the entry script's directory, the bundled canon (`std:` imports, `src/logos_lang/lib/`),
 or directories granted with `--import-root DIR` (`SecurityContext.import_roots`).
 Anything else raises a `SecurityError`. A cyclic import receives the partially loaded
 module; its exports become visible once the cycle finishes loading.

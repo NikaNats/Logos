@@ -33,7 +33,7 @@ export type SemanticToken = {
 
 const DIAGNOSTIC_SOURCE = "LOGOS Language Server";
 
-// Reserved words from the grammar (logos_lang/grammar.py) and FORMAL_LANGUAGE_SPEC.md §2.5.
+// Reserved words from the grammar (src/logos_lang/grammar.py) and docs/FORMAL_LANGUAGE_SPEC.md §2.5.
 const KEYWORD_LIST = [
   "chant",
   "discern",

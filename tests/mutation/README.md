@@ -24,6 +24,6 @@ uv run mutmut results
 
 ## High-Value Targets
 
-- `logos_lang/types.py`: operator/type compatibility logic.
-- `logos_lang/interpreter.py`: declaration/amend/type-enforcement control flow.
-- `logos_lang/ffi.py`: policy and sandbox gates.
+- `src/logos_lang/types.py`: operator/type compatibility logic.
+- `src/logos_lang/interpreter.py`: declaration/amend/type-enforcement control flow.
+- `src/logos_lang/ffi.py`: policy and sandbox gates.

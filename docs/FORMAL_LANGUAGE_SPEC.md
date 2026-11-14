@@ -104,6 +104,8 @@ AmendStmt       = "amend" , Mutable , "=" , Expr , ";" ;
 ApocryphaStmt   = "apocrypha" , StringLit , "mystery" , Identifier ,
                   "(" , [ Params ] , ")" , [ "->" , TypeName ] , ";" ;
 TraditionStmt   = "tradition" , StringLit , [ "as" , Identifier ] , ";" ;
+                  (* StringLit "std:" Name names a bundled canon book, Name = [a-z][a-z0-9_]* ;
+                     any other StringLit is a path relative to the importing file *)
 ChantStmt       = "chant" , Expr , Block , "amen" ;
 DiscernStmt     = "discern" , "(" , Expr , ")" , Block , "otherwise" , Block , "amen" ;
 VigilStmt       = "vigil" , Block , "confess" , Identifier , Block , "amen" ;

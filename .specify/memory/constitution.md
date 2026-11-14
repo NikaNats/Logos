@@ -35,7 +35,7 @@
   - uv sync --group dev
   - uv run pytest -q
   - uv run ruff check . && uv run mypy
-  - uv run python logos.py examples/smoke_test.lg
+  - uv run logos examples/smoke_test.lg
   - (VS Code extension) npm run test:unit in packages/logos-vscode
 
 ## Development Workflow and Quality Gates

@@ -21,8 +21,8 @@ Tests may be omitted only for documentation-only changes.
 
 ## Path Conventions
 
-- **Runtime core**: `logos_lang/`
-- **Canonical libraries**: `lib/`
+- **Runtime core**: `src/logos_lang/`
+- **Canonical libraries**: `src/logos_lang/lib/`
 - **Examples and programs**: `examples/`, `programs/`
 - **Tests**: `tests/` (includes fixtures, fuzz, stress)
 - **Editor tooling**: `packages/logos-vscode/`
@@ -90,7 +90,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Implement core logic update in logos_lang/[module].py
+- [ ] T012 [P] [US1] Implement core logic update in src/logos_lang/[module].py
 - [ ] T013 [P] [US1] Implement canonical library/tooling update in lib/[file].lg or packages/logos-vscode/[path]
 - [ ] T014 [US1] Wire call paths and compatibility behavior
 - [ ] T015 [US1] Add validation/error handling and message improvements
@@ -114,7 +114,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Implement feature logic in logos_lang/[module].py or packages/logos-vscode/[path]
+- [ ] T020 [P] [US2] Implement feature logic in src/logos_lang/[module].py or packages/logos-vscode/[path]
 - [ ] T021 [US2] Integrate with existing runtime/module boundaries
 - [ ] T022 [US2] Update tests for story-level independent verification
 - [ ] T023 [US2] Validate compatibility with User Story 1 paths
@@ -136,7 +136,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Implement feature logic in logos_lang/[module].py or related package path
+- [ ] T026 [P] [US3] Implement feature logic in src/logos_lang/[module].py or related package path
 - [ ] T027 [US3] Integrate with prior stories while preserving independent testability
 - [ ] T028 [US3] Add/adjust tests and verification commands
 
@@ -205,7 +205,7 @@ Task: "Regression test in tests/test_[area].py"
 Task: "Fixture/integration test in tests/fixtures/[case].lg or tests/[suite]/test_[name].py"
 
 # Launch independent implementation tasks for User Story 1 together:
-Task: "Implement core logic update in logos_lang/[module].py"
+Task: "Implement core logic update in src/logos_lang/[module].py"
 Task: "Implement canonical library/tooling update in lib/[file].lg or packages/logos-vscode/[path]"
 ```
 

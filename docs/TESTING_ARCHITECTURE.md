@@ -76,6 +76,6 @@ uv run mutmut results
 
 ## Runtime Invariant Guard
 
-- File: `logos_lang/interpreter.py`
+- File: `src/logos_lang/interpreter.py`
 - Top-level `visit(start)` now traps unexpected host exceptions and re-raises as `LogosError`,
   preserving language-level error boundaries for adversarial workloads.
