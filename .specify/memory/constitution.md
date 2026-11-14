@@ -29,13 +29,14 @@
 
 ## Brownfield Constraints
 
-- Python runtime baseline: Python 3.11+.
+- Python runtime baseline: Python 3.12+ (`requires-python` in pyproject.toml).
+- Environment is managed with uv; no machine-specific paths.
 - Preferred local validation command set:
-  - py -3.13 -m pytest -q
-  - py -3.13 logos.py examples/smoke_test.lg
-- If local virtualenv interpreter is unavailable, use repository site-packages fallback:
-  - $env:PYTHONPATH = "c:/Users/Nika/Downloads/Trinity/.venv/Lib/site-packages"
-  - py -3.13 -m pytest -q
+  - uv sync --group dev
+  - uv run pytest -q
+  - uv run ruff check . && uv run mypy
+  - uv run python logos.py examples/smoke_test.lg
+  - (VS Code extension) npm run test:unit in packages/logos-vscode
 
 ## Development Workflow and Quality Gates
 
@@ -60,4 +61,4 @@
 	- PATCH: wording clarifications and alignment updates without policy shifts.
 - Pull requests must state which principle(s) were applied and how gates were satisfied.
 
-**Version**: 1.0.1 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-03-30
+**Version**: 1.0.2 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-11-15

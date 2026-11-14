@@ -1,4 +1,8 @@
-// --- THE CANON OF LOGOS (Standard Library) ---
+// --- THE CANON OF LOGOS (Legacy typed bundle) ---
+// Kept for compatibility with existing liturgies. New code should import the domain books
+// instead: numeri.lg (numbers), psalms.lg (text), genesis.lg (system and I/O).
+// Overlaps: pow ~ numeri.power, abs/max/min ~ numeri, is_empty ~ psalms, say ~ proclaim.
+// See CANON_API_REFERENCE.md section 6.
 
 // ==========================================
 // I. THE BOOK OF NUMBERS (Mathematics)

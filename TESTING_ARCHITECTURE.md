@@ -39,6 +39,11 @@ This document maps production-hardening test domains to concrete suites in this 
   - `packages/logos-vscode/src/test/**` with `@vscode/test-electron` harness.
   - Run with `npm run test:extension-host` in `packages/logos-vscode`.
 
+- TypeScript server unit tests:
+  - `packages/logos-vscode/src/test/unit/analysis.test.ts` covers diagnostics ranges, `#`/`//`
+    comments, semantic tokens and inlay hints from `src/analysis.ts` in plain Node.
+  - Run with `npm run test:unit` in `packages/logos-vscode`.
+
 ## 5) Advanced Sandbox Penetration
 
 - File: `tests/test_security.py`
@@ -46,6 +51,16 @@ This document maps production-hardening test domains to concrete suites in this 
   - Existing reflection/private-attribute and traversal fixtures.
   - Symlink escape scenario against `__sys_open` realpath enforcement.
   - Poisoned host builtins environment check to ensure no runtime escape via interpreter namespace.
+
+## 5b) Runtime Hardening Regressions
+
+- File: `tests/test_runtime_hardening.py`
+- Coverage: VM block-scope/type-stack parity and frame cleanup, static elision soundness under
+  shadowing, module export sync and cyclic imports, import-root containment, closed icon
+  records, Bool/number equality, `vigil` vs `SecurityError`, `depart` as `LogosExit`, scroll
+  limits/modes/protected writes, and error source locations on both engines.
+- Engine parity: `tests/test_scoping_and_icons_dogma.py` and `tests/test_type_enforcement_dogma.py`
+  run every dogma under both `visitor` and `vm-hybrid`.
 
 ## 6) Mutation Testing
 

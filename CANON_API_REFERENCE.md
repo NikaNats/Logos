@@ -86,12 +86,13 @@ Signature:
 
 Contract:
 
-- Terminates process with status code `int(code)` via `__sys_exit`.
+- Halts the running program with status code `int(code)` via `__sys_exit`.
 
 Failure behavior:
 
-- Raises host `SystemExit` for termination semantics.
-- This is not a normal `Exception`; a `vigil` block does not guarantee interception.
+- Raises `LogosExit` (a `BaseException`, like `SystemExit`). It halts the interpreter, not
+  the embedding host: the CLI maps it to the process exit code; embedders catch it.
+- `vigil` never intercepts it.
 
 ## 2.5 get_env
 
@@ -126,11 +127,14 @@ Contract:
   - `0` => read (`r`)
   - `1` => write (`w`)
   - `2` => append (`a`)
-  - any other value => read (`r`)
+  - any other value => `LogosError` ("Invalid scroll mode")
 
 Failure behavior:
 
-- On path traversal violation, raises a `SecurityError`. On routine file-not-found failure, returns `0`.
+- On path traversal violation, or when writing/appending to an executable or source file
+  (`.lg`, `.py`, `.dll`, `.so`, `.exe`, `.ps1`, `.sh`, ...), raises a `SecurityError`.
+- More than 64 simultaneously open scrolls raises a `LogosError`.
+- On routine I/O failure (e.g. file not found), returns `0`.
 
 ## 2.7 close_scroll
 
@@ -526,7 +530,7 @@ Signature:
 
 Contract:
 
-- Terminates process via `SystemExit(int(code))`.
+- Raises `LogosExit(int(code))`; see `depart`.
 
 ## 5.3 File I/O Built-ins
 
@@ -540,6 +544,10 @@ Contract:
 
 - Resolves path under interpreter base path using realpath containment.
 - Blocks traversal and symlink escape outside base path, raising a `SecurityError` immediately.
+- Write/append modes refuse executable and source files (`SecurityError`).
+- Mode must be `0`, `1` or `2`; anything else raises a `LogosError`.
+- At most 64 scrolls may be open at once; all scrolls are closed when the run ends
+  (`LogosInterpreter.close()`, called by the CLI).
 - Opens in UTF-8 text mode.
 - Returns file descriptor >= 3 on success.
 - Returns `0` on routine I/O failure.
@@ -619,8 +627,10 @@ Contract:
   - `__sys_read` returns `""` on invalid descriptor.
   - `__sys_write` returns `Nay` on invalid descriptor.
 - Exceptional APIs:
-  - `__sys_open` raises a `SecurityError` on path traversal violations.
-  - `__sys_exit` terminates process (`SystemExit`).
+  - `__sys_open` raises a `SecurityError` on path traversal or protected-file writes, and a
+    `LogosError` on an invalid mode or too many open scrolls.
+  - `__sys_exit` halts the program (`LogosExit`).
+- `vigil` never catches `SecurityError` or `LogosExit`: sandbox violations and halts are terminal.
   - Numeric/string conversion errors in helper functions can raise host exceptions.
 
 Best practice:
