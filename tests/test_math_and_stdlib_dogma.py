@@ -32,8 +32,8 @@ class MathAndStdLibDogmaTests(unittest.TestCase):
         self.assertIn("0", out)
 
     def test_is_even_correctness(self) -> None:
-        numeri_path = ROOT / "lib" / "numeri.lg"
-        interp = logos_lang.LogosInterpreter(base_path=str(ROOT / "lib"))
+        numeri_path = Path(logos_lang.modules.BUNDLED_LIB_DIR) / "numeri.lg"
+        interp = logos_lang.LogosInterpreter(base_path=str(Path(logos_lang.modules.BUNDLED_LIB_DIR)))
         interp._current_file = str(numeri_path)
 
         buf = io.StringIO()
@@ -50,8 +50,8 @@ class MathAndStdLibDogmaTests(unittest.TestCase):
         self.assertIn("Nay", out)
 
     def test_canon_iterative_pow_and_chant(self) -> None:
-        canon_path = ROOT / "lib" / "canon.lg"
-        interp = logos_lang.LogosInterpreter(base_path=str(ROOT / "lib"))
+        canon_path = Path(logos_lang.modules.BUNDLED_LIB_DIR) / "canon.lg"
+        interp = logos_lang.LogosInterpreter(base_path=str(Path(logos_lang.modules.BUNDLED_LIB_DIR)))
         interp._current_file = str(canon_path)
 
         buf = io.StringIO()

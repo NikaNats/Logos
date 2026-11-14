@@ -1,4 +1,4 @@
-tradition "../../lib/psalms.lg";
+tradition "std:psalms";
 
 mystery main() {
     proclaim first_char("abc");

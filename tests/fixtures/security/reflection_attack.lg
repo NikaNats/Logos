@@ -1,4 +1,4 @@
-tradition "../../../lib/numeri.lg" as math;
+tradition "std:numeri" as math;
 
 vigil {
     inscribe hidden_interp = math.abs.interpreter;

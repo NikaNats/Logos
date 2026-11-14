@@ -42,17 +42,23 @@ except Exception as e:
 SERVER = LanguageServer("logos-server", "v0.2")
 
 # --- PATH SETUP ---
-# Ensure logos_lang is importable from ../../../
+# Prefer an installed logos_lang (uv sync / pip install); when running straight from a
+# source checkout, fall back to the repository's src/ directory.
 SERVER_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SERVER_DIR.parents[2]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+SRC_DIR = SERVER_DIR.parents[2] / "src"
+try:
+    import logos_lang  # noqa: F401
+except ImportError:
+    if SRC_DIR.is_dir() and str(SRC_DIR) not in sys.path:
+        sys.path.append(str(SRC_DIR))
 
 try:
-    # IMPORT FROM NEW PACKAGE
     from logos_lang import LOGOS_GRAMMAR, TypeCanon
 except ImportError:
-    _fatal("LOGOS Iconostasis: Could not import 'logos_lang'. Ensure repo root is in PYTHONPATH.")
+    _fatal(
+        "LOGOS Iconostasis: Could not import 'logos_lang'. "
+        "Install the project (uv sync) or run from a source checkout."
+    )
     raise
 
 # --- PARSER CACHING ---

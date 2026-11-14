@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 
 def _resolve_print() -> Callable[..., object]:
-    logos_mod = sys.modules.get("logos")
+    logos_mod = sys.modules.get("logos_lang.cli")
     return getattr(logos_mod, "print", print)
 
 
