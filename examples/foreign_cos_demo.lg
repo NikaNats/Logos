@@ -1,4 +1,4 @@
-# Run with: python logos.py examples/foreign_cos_demo.lg --unsafe-ffi --allow-inferred-ffi-signatures
+# Run with: uv run logos examples/foreign_cos_demo.lg --unsafe-ffi --allow-inferred-ffi-signatures
 # Great Commission demo: calling a C math function via apocrypha.
 # Windows: msvcrt.dll provides cos(double) -> double
 

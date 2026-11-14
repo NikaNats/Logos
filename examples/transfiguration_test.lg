@@ -1,4 +1,4 @@
-# Run with: python logos.py examples/transfiguration_test.lg --unsafe-ffi --allow-inferred-ffi-signatures
+# Run with: uv run logos examples/transfiguration_test.lg --unsafe-ffi --allow-inferred-ffi-signatures
 # Link the C math library (msvcrt on Windows, m on Linux)
 apocrypha "msvcrt" mystery cos();
 

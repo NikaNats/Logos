@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -10,9 +11,22 @@ if TYPE_CHECKING:
     from .interpreter import LogosInterpreter
 
 
-# The bundled canon (`lib/*.lg`) ships next to the package, both in a source checkout and
-# in the wheel (hatch installs `lib` as a sibling of `logos_lang`).
-BUNDLED_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+# The bundled canon ships inside the package (src/logos_lang/lib/*.lg), so it resolves the
+# same way in a source checkout, an editable install and an installed wheel.
+BUNDLED_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+
+# `tradition "std:genesis";` names a book of the bundled canon independent of file layout.
+STD_PREFIX = "std:"
+_STD_NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _resolve_import_path(base_dir: str, rel_path: str) -> str:
+    if rel_path.startswith(STD_PREFIX):
+        name = rel_path[len(STD_PREFIX) :]
+        if not _STD_NAME.fullmatch(name):
+            raise LogosError(f"Schism: Invalid canon name '{rel_path}'; expected e.g. 'std:genesis'.")
+        return os.path.join(BUNDLED_LIB_DIR, f"{name}.lg")
+    return os.path.abspath(os.path.join(base_dir, rel_path))
 
 
 def _import_roots(
@@ -88,7 +102,7 @@ class ModuleManager:
         from .interpreter import LogosInterpreter
 
         base_dir = os.path.dirname(requestor_path)
-        abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
+        abs_path = _resolve_import_path(base_dir, rel_path)
         resolved_path = os.path.normcase(os.path.realpath(abs_path))
 
         security = self.security or (

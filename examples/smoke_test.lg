@@ -1,4 +1,4 @@
-tradition "../lib/genesis.lg";
+tradition "std:genesis";
 
 mystery main() -> Void {
     proclaim "--- LOGOS SYSTEM CHECK ---";

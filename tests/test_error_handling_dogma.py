@@ -17,8 +17,8 @@ class ErrorHandlingDogmaTests(unittest.TestCase):
         self.parser = Lark(logos_lang.LOGOS_GRAMMAR, parser="lalr")
 
     def test_write_line_fails_on_invalid_descriptor(self) -> None:
-        genesis_path = ROOT / "lib" / "genesis.lg"
-        interp = logos_lang.LogosInterpreter(base_path=str(ROOT / "lib"))
+        genesis_path = Path(logos_lang.modules.BUNDLED_LIB_DIR) / "genesis.lg"
+        interp = logos_lang.LogosInterpreter(base_path=str(Path(logos_lang.modules.BUNDLED_LIB_DIR)))
         interp._current_file = str(genesis_path)
 
         buf = io.StringIO()

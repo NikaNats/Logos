@@ -1,5 +1,5 @@
 // Requires the classic typed canon (abs, max, say, say_int, chant).
-tradition "../lib/canon.lg";
+tradition "std:canon";
 
 mystery main() {
     inscribe a : HolyInt = 0 - 50;

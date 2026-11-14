@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-logos = "logos:main"
+logos = "logos_lang.cli:main"
 
 [project.optional-dependencies]
 lsp = [
@@ -37,18 +37,12 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["logos_lang", "lib"]
-
-[tool.hatch.build.targets.wheel.package-data]
-logos_lang = ["py.typed"]
-lib = ["*.lg"]
+# src layout: installs as `logos_lang`; the bundled canon (lib/*.lg) and py.typed ship as
+# package data inside it, so nothing lands in site-packages under a generic name.
+packages = ["src/logos_lang"]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "logos.py",
-  "logos_lang/",
-  "lib/",
-]
+include = ["src/", "tests/", "docs/", "README.md", "LICENSE"]
 
 [tool.ruff]
 target-version = "py312"
@@ -67,10 +61,14 @@ select = ["E4", "E7", "E9", "F", "I"]
 quote-style = "double"
 indent-style = "space"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["logos_lang", "logos.py", "packages/logos-vscode/server/lsp_server.py"]
+files = ["src/logos_lang", "packages/logos-vscode/server/lsp_server.py"]
+mypy_path = "src"
 pretty = true
 show_error_codes = true
 warn_unused_configs = true
@@ -79,11 +77,22 @@ warn_unused_configs = true
 # Used by the editor / Claude Code LSP for navigation; mypy (strict) is the authoritative checker.
 venvPath = "."
 venv = ".venv"
-include = ["logos_lang", "logos.py", "packages/logos-vscode/server"]
+include = ["src", "packages/logos-vscode/server"]
 pythonVersion = "3.12"
 
 [tool.mutmut]
-paths_to_mutate = ["logos_lang/"]
+paths_to_mutate = ["src/logos_lang/"]
 tests_dir = "tests/"
 runner = "python -m pytest -q"
 also_copy = ["tests/fixtures/"]
+
+[tool.coverage.run]
+source = ["logos_lang"]
+branch = false
+omit = ["*/logos_lang/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_empty = true
+exclude_also = ["if __name__ == .__main__.:"]

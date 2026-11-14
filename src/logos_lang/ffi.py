@@ -1,4 +1,5 @@
 import ctypes
+import ctypes.util
 import os
 import sys
 from typing import Any, Dict, List
@@ -106,10 +107,11 @@ class FFIManager:
             filename = lib_name
         elif os.name == "nt":
             filename = f"{lib_name}.dll"
-        elif sys.platform == "darwin":
-            filename = f"lib{lib_name}.dylib"
         else:
-            filename = f"lib{lib_name}.so"
+            # Resolve the real shared object via the system's library search (e.g. "m" ->
+            # "libm.so.6"). The bare "libm.so" is often a linker script, not loadable.
+            suffix = "dylib" if sys.platform == "darwin" else "so"
+            filename = ctypes.util.find_library(clean) or f"lib{clean}.{suffix}"
 
         if filename not in self.libs:
             try:

@@ -135,16 +135,25 @@ class ModuleTests(unittest.TestCase):
         program = self.base / "program"
         program.mkdir()
         self.write("shared.lg", "inscribe shared = 5;\n")
-        numeri = (ROOT / "lib" / "numeri.lg").as_posix()
         security = logos_lang.SecurityContext.strict()
         security.import_roots = [str(self.base)]
         interp = logos_lang.LogosInterpreter(base_path=str(program), security=security)
         _, out = run(
-            f'tradition "{numeri}";\ntradition "../shared.lg";\nproclaim abs(0 - shared);\n',
+            'tradition "std:numeri";\ntradition "../shared.lg";\nproclaim abs(0 - shared);\n',
             base_path=str(program),
             interp=interp,
         )
         self.assertEqual(proclaimed(out), ["5"])
+
+    def test_std_scheme_only_names_canon_books(self) -> None:
+        for bad in ("std:../../secret", "std:Genesis", "std:", "std:a/b"):
+            with self.subTest(path=bad):
+                with self.assertRaises(logos_lang.LogosError) as ctx:
+                    run(f'tradition "{bad}";\n', base_path=str(self.base))
+                self.assertIn("Invalid canon name", str(ctx.exception))
+        with self.assertRaises(logos_lang.LogosError) as ctx:
+            run('tradition "std:no_such_book";\n', base_path=str(self.base))
+        self.assertIn("Tradition not found: std:no_such_book", str(ctx.exception))
 
 
 class IconClosedRecordTests(unittest.TestCase):
@@ -214,7 +223,7 @@ class SandboxTests(unittest.TestCase):
             script = Path(td) / "bye.lg"
             script.write_text('proclaim "bye";\n__sys_exit(3);\n', encoding="utf-8")
             result = subprocess.run(
-                [sys.executable, str(ROOT / "logos.py"), str(script)],
+                [sys.executable, "-m", "logos_lang", str(script)],
                 capture_output=True, text=True, encoding="utf-8", cwd=ROOT,
             )
         self.assertEqual(result.returncode, 3, result.stdout + result.stderr)

@@ -1,4 +1,4 @@
-"""Tests for logos.py entrypoint CLI, REPL, and coverage requirements."""
+"""Tests for the logos_lang.cli entrypoint (CLI, REPL) and its coverage requirements."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ from unittest.mock import patch
 
 from lark import Lark
 
-import logos
 import logos_lang
+from logos_lang import cli as logos
 
 
 class EntrypointCoverageTests(unittest.TestCase):
-    """Test suite targeting 100% statement and branch coverage for logos.py."""
+    """Test suite targeting 100% statement and branch coverage for logos_lang.cli."""
 
     def test_host_recursion_limit_is_wrapped(self) -> None:
         source = "\n".join(
@@ -178,7 +178,7 @@ class EntrypointCoverageTests(unittest.TestCase):
                         str(temp_dir / "fake.wasm"),
                     ],
                 ),
-                patch("logos.WasiExecutionBridge.execute", return_value=0),
+                patch("logos_lang.cli.WasiExecutionBridge.execute", return_value=0),
                 patch("pathlib.Path.exists", return_value=True),
             ):
                 logos.main()
@@ -200,14 +200,14 @@ class EntrypointCoverageTests(unittest.TestCase):
                         "wasi",
                     ],
                 ),
-                patch("logos.LogosInterpreter.compile_bytecode", return_value=None),
+                patch("logos_lang.cli.LogosInterpreter.compile_bytecode", return_value=None),
                 patch.object(logos.sys, "exit", side_effect=SystemExit(1)),
             ):
                 with self.assertRaises(SystemExit):
                     logos.main()
 
     def test_main_repl_trigger(self) -> None:
-        with patch.object(sys, "argv", ["logos.py"]), patch("logos.run_repl") as mock_repl:
+        with patch.object(sys, "argv", ["logos.py"]), patch("logos_lang.cli.run_repl") as mock_repl:
             logos.main()
             mock_repl.assert_called_once()
 

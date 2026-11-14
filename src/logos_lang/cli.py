@@ -1,4 +1,4 @@
-"""Logos entrypoint module exposing the public API and CLI."""
+"""Command-line interface and REPL (`logos` console script, `python -m logos_lang`)."""
 
 from __future__ import annotations
 

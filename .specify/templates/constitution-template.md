@@ -35,7 +35,7 @@
 - Python baseline: 3.11+.
 - Required validation commands:
 	- py -3.13 -m pytest -q
-	- py -3.13 logos.py examples/smoke_test.lg
+	- uv run logos examples/smoke_test.lg
 - Fallback when local virtualenv interpreter is unavailable:
 	- $env:PYTHONPATH = "c:/Users/Nika/Downloads/Trinity/.venv/Lib/site-packages"
 	- py -3.13 -m pytest -q

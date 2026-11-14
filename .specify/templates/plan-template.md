@@ -50,9 +50,7 @@ specs/[###-feature]/
 ### Source Code (repository root)
 
 ```text
-logos.py
-logos_lang/
-lib/
+src/logos_lang/          # runtime package (cli.py = `logos` command)
 examples/
 programs/
 tests/
@@ -63,7 +61,7 @@ packages/
 ```
 
 **Structure Decision**: Use the existing monorepo layout. Keep runtime changes
-in logos_lang/, canonical library changes in lib/, and tooling changes under
+in src/logos_lang/, canonical library changes in src/logos_lang/lib/, and tooling changes under
 packages/logos-vscode/.
 
 ## Complexity Tracking
